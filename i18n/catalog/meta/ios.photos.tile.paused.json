@@ -1,0 +1,16 @@
+{
+  "description": "Tile and page sub-line for the Photos source when paused.",
+  "context": "Native app presentation. Source paused sub-line.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "d9c657728a6109057bbfb9ec96721f7bd2173a0e68081b09a4e8f663a348b64a",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -3345,3 +3345,68 @@ ios.app.importbginprogress = sending in the background. you can switch away whil
 ios.app.importbgcompleted = finished sending.
 
 ios.app.importbgpaused = paused before the transfer finished. the file stays on this device, and sending picks up where it left off whenever the solstone app is open.
+
+ios.screenshots.whatittakesin.withphotos = while screenshots is on, the solstone app takes in the screenshots you take, and your journal keeps each one at the minute you took it. other photos stay where they are unless you turn on photos.
+
+ios.intake.count.photos = { $count ->
+    [one] { $display } photo
+   *[other] { $display } photos
+}
+
+ios.photos.label = photos
+
+ios.photos.tile.steady = adds chosen photos from your library to your journal while this is on.
+
+ios.photos.tile.scanning = scanning your library…
+
+ios.photos.tile.choose = scanned. open your journal to choose what comes in.
+
+ios.photos.tile.progress = { $done } of { $total } checked
+
+ios.photos.tile.paused = paused. no photos are coming in.
+
+ios.photos.page.whatittakesin = while this is on, the solstone app reads the details of the visible items in your library so your journal can choose which photos belong to your days. the solstone app then takes in small copies of only those and adds them to your journal. originals stay in your library, hidden photos are never read, and nothing in your library is changed.
+
+ios.photos.action.turnon = turn on photos
+
+ios.photos.hint.turnon = asks ios for access to your photos.
+
+ios.photos.page.alreadygranted = photo access is already on for the solstone app.
+
+ios.photos.action.scan = scan your library
+
+ios.photos.hint.scan = scans your photo library details so you can open your journal and choose what comes in.
+
+ios.photos.page.scanning.progress = scanning { $checked } of { $total } items… details only, no photos brought in yet. keep the solstone app open until the scan finishes.
+
+ios.photos.page.scanning.starting = scanning your library… details only, no photos brought in yet. keep the solstone app open until the scan finishes.
+
+ios.photos.page.scandone = scan finished. no photos come in until you choose how far back in your journal.
+
+ios.photos.action.choose = choose what comes in
+
+ios.photos.page.progress = { $done } of { $total } photos checked
+
+ios.photos.page.steady.widen = up to date. widen range, see left-out counts, pause, or turn off in your journal.
+
+ios.photos.page.steady.all = up to date. see left-out counts, pause, or turn off in your journal.
+
+ios.photos.action.openjournal = open photos in your journal
+
+ios.photos.page.honesty = ios lets the solstone app check for new photos only while it runs, so chosen copies can take a while to reach your journal.
+
+ios.photos.fact.staysifdeleted = a photo already in your journal stays there if you delete it from Photos.
+
+ios.photos.fact.keepswhatsin = what's already in your journal stays when you pause or turn this off.
+
+ios.photos.reason.unpaired = connect a journal first to scan your library and choose which photos come in.
+
+ios.photos.reason.limitedprompt = ios is sharing only the photos you picked, so the solstone app can't scan your library. allow full access in ios settings to turn this on.
+
+ios.photos.reason.declined = the solstone app can't read your photos. allow full access in ios settings to turn this on.
+
+ios.photos.reason.limitedlater = ios is sharing only the photos you picked, so new photos can't come in. allow full access in ios settings.
+
+ios.photos.reason.offlater = photo access is off in ios settings, so nothing new comes in. what's already in your journal stays.
+
+ios.photos.reason.journaltooold = waiting for a journal update.

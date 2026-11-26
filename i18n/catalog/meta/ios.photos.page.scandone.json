@@ -1,0 +1,16 @@
+{
+  "description": "Photos source page status after scanning finishes and before a range is chosen in the journal.",
+  "context": "Native app presentation. Photos source page.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ba203d27cddcc359ee5cac44d43e1ca63049251b02d286f917db06a388b4998c",
+  "risk": "routine",
+  "auto_merge": true
+}

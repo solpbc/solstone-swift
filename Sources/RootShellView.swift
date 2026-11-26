@@ -1032,6 +1032,12 @@ struct RootShellView: View {
                 self.nav.selectFromDeck(.source(.obsidian))
             case "source:safari":
                 self.nav.selectFromDeck(.source(.safari))
+            case "source:screenshots":
+                self.nav.selectFromDeck(.source(.screenshots))
+#if SOLSTONE_PHOTOS_LIBRARY
+            case "source:photos":
+                self.nav.selectFromDeck(.source(.photos))
+#endif
             default:
                 break
             }

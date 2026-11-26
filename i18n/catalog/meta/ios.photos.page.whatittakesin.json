@@ -1,0 +1,16 @@
+{
+  "description": "Photos source page summary explaining what the source reads and keeps.",
+  "context": "Native app presentation. Photos source page.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "aa2d9328ffdab9ecd4b686580d5ca5762a7f8fca766ddb76d04ea70a8b49c3ca",
+  "risk": "routine",
+  "auto_merge": true
+}

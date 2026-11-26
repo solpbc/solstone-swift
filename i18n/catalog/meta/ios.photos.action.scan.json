@@ -1,0 +1,16 @@
+{
+  "description": "Primary button label to start scanning photo library details when full access is already granted.",
+  "context": "Native app presentation. Primary button label.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "5b571a030c4ef20f0da188260b75643c1dad6e4ea39483caa39721d18870ec69",
+  "risk": "routine",
+  "auto_merge": true
+}

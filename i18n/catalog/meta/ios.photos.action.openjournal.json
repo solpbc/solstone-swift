@@ -1,0 +1,16 @@
+{
+  "description": "Button label opening the photos source page in the journal.",
+  "context": "Native app presentation. Button label.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "c207b7aba68176d184bff5876db60a707559cb86f9f0db1ffd8410808966669a",
+  "risk": "routine",
+  "auto_merge": true
+}

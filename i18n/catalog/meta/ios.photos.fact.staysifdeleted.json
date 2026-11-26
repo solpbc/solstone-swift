@@ -1,0 +1,16 @@
+{
+  "description": "Facts line noting that deleting a photo from Apple Photos does not remove it from the journal.",
+  "context": "Native app presentation. Photos source page facts.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "3fe7a21dc92ccb79aeb7d84592be0641d0fda4ed19e8252bf9b22b67fddce707",
+  "risk": "routine",
+  "auto_merge": true
+}

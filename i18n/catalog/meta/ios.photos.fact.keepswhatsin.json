@@ -1,0 +1,16 @@
+{
+  "description": "Facts line noting that pausing or turning off photos keeps landed journal photos.",
+  "context": "Native app presentation. Photos source page facts.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "88d091123442517ed9e24a0fc07f81919cb38d25ec542373965970d004011c5b",
+  "risk": "routine",
+  "auto_merge": true
+}

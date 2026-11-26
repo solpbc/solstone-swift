@@ -1,0 +1,16 @@
+{
+  "description": "Photos source page status when up to date and the historical range can still be widened.",
+  "context": "Native app presentation. Photos source page.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "60ed6769e2c91d7aece2cf29f29f851916b8c5f24b2510f79d410adb5c0306e9",
+  "risk": "routine",
+  "auto_merge": true
+}

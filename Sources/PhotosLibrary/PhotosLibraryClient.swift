@@ -13,6 +13,15 @@ nonisolated protocol PhotosLibraryTransport: Sendable {
     func postStatus(_ payload: PhotosDeviceStatusPayload) async throws
     func fetchWanted(limit: Int) async throws -> PhotosWantedResponse
     func postCopy(_ payload: PhotosCopyUploadPayload) async throws
+    func fetchDashboardState() async -> PhotosJournalDashboardSummary?
+    func postPause() async throws
+    func postResume() async throws
+}
+
+nonisolated extension PhotosLibraryTransport {
+    func fetchDashboardState() async -> PhotosJournalDashboardSummary? { nil }
+    func postPause() async throws {}
+    func postResume() async throws {}
 }
 
 nonisolated enum PhotosLibraryTransportError: Error, Equatable {
@@ -109,6 +118,27 @@ nonisolated final class AuthenticatedPhotosLibraryClient: PhotosLibraryTransport
 
     func postCopy(_ payload: PhotosCopyUploadPayload) async throws {
         try await self.postJSON(path: "/app/devices/photos-library/copy", payload: payload, timeout: .seconds(60))
+    }
+
+    func fetchDashboardState() async -> PhotosJournalDashboardSummary? {
+        guard await self.admitSend(),
+              let port = await self.localPortProvider()
+        else { return nil }
+        guard let (data, code) = try? await self.homeClient.sourceRequest(
+            localPort: port,
+            path: "/app/sources/photos/api/state",
+            timeout: .seconds(10)
+        ), (200..<300).contains(code)
+        else { return nil }
+        return try? JSONDecoder().decode(PhotosJournalDashboardSummary.self, from: data)
+    }
+
+    func postPause() async throws {
+        try await self.postJSON(path: "/app/sources/photos/api/pause", payload: [String: String](), timeout: .seconds(10))
+    }
+
+    func postResume() async throws {
+        try await self.postJSON(path: "/app/sources/photos/api/resume", payload: [String: String](), timeout: .seconds(10))
     }
 
     private func postJSON<T: Encodable>(path: String, payload: T, timeout: Duration) async throws {

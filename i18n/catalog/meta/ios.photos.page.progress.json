@@ -1,0 +1,25 @@
+{
+  "description": "Photos source page status while chosen photos are arriving in the journal.",
+  "context": "Native app presentation. Photos source page.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "done",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "7e4bcb798ed93bca5f4b2729718a19e085a3245049850bf818377db7bdfea83e",
+  "risk": "routine",
+  "auto_merge": true
+}

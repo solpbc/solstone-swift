@@ -1,0 +1,16 @@
+{
+  "description": "Screenshots source page explanation when the Photos Library source is available alongside Screenshots.",
+  "context": "Native app presentation. Screenshots source page.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "1cd894213d2c1919009e845c611c65a051382331ea77315a07975cb97d0d06d3",
+  "risk": "routine",
+  "auto_merge": true
+}

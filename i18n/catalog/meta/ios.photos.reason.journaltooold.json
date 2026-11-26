@@ -1,0 +1,16 @@
+{
+  "description": "Reason shown on the Photos source page when the paired journal does not yet advertise the photos_library capability.",
+  "context": "Native app presentation. Photos source page reason.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "dfaaa24bac1d9d7feb73516c6c8623c1dbb8a99978328976ccabf909fd79034f",
+  "risk": "routine",
+  "auto_merge": true
+}

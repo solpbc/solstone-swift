@@ -22420,6 +22420,13 @@
       ]
     },
     {
+      "id": "ios.intake.count.photos",
+      "source": "dd7d437723281ebac76a79572b29d86687b12ba10f2c51bb5e07185d1d6ba3fe",
+      "contract": "7074d50c192e020afb6a1b130029cf9a8839b3cbfac6aad3e09454695dc49c08",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
       "id": "ios.intake.count.screenshots",
       "source": "1a604c1e8e67a530fc88eb8ba00cbd6a11eba338f2eab6c80c7b46dca20266b0",
       "contract": "7074d50c192e020afb6a1b130029cf9a8839b3cbfac6aad3e09454695dc49c08",
@@ -31572,6 +31579,209 @@
       ]
     },
     {
+      "id": "ios.photos.action.choose",
+      "source": "80e02b092050eb06a5856ad5b66a5927e3ebb3925e22235e03673ff737844c76",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.action.openjournal",
+      "source": "c207b7aba68176d184bff5876db60a707559cb86f9f0db1ffd8410808966669a",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.action.scan",
+      "source": "5b571a030c4ef20f0da188260b75643c1dad6e4ea39483caa39721d18870ec69",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.action.turnon",
+      "source": "b833a01ad233d4224f831a47dd9a97794dc6e660516aff79da9fe3dc9207b7a8",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.fact.keepswhatsin",
+      "source": "88d091123442517ed9e24a0fc07f81919cb38d25ec542373965970d004011c5b",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.fact.staysifdeleted",
+      "source": "3fe7a21dc92ccb79aeb7d84592be0641d0fda4ed19e8252bf9b22b67fddce707",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.hint.scan",
+      "source": "1ade5b984f89ecb2f58b6de432529176cd6c02dbb9db1e5e6dda4d7cfecc6723",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.hint.turnon",
+      "source": "4c8460182bf75409da49f8668d544db7393cc246a37b924dcde1489c23831f92",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.label",
+      "source": "84def6dfe44253e83d20a9d65236dd39317d78be94530ee00dc07af408799de2",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.page.alreadygranted",
+      "source": "16f7fb58b6f3b0ee47e97759e2981c93b64b2ba5e190f3333a9706f0482f9789",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.page.honesty",
+      "source": "58fc5121e0c1a827c0f6e28e0ce7bc01ea8c36dabefac237bb2f4f85a3a7cbb1",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.page.progress",
+      "source": "7e4bcb798ed93bca5f4b2729718a19e085a3245049850bf818377db7bdfea83e",
+      "contract": "ff2c5f39372e1da459f1490c2e7ea020c40e12a9bfafa4c5e8581d7427516539",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.page.scandone",
+      "source": "ba203d27cddcc359ee5cac44d43e1ca63049251b02d286f917db06a388b4998c",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.page.scanning.progress",
+      "source": "57009b7d243abf32dfd737c15f3a250bb96d1acc7988d33d7316368fa9248842",
+      "contract": "123532ccbb86d4f7a9a6e964024fca331e1966bf978c7ae74d56d4aa1fc628a5",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.page.scanning.starting",
+      "source": "cedecd156824547bc4dab37dedcaa99c35829b60666eb4180fee6bb4185ddf73",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.page.steady.all",
+      "source": "4e442cdd2340dbc4ccdafd6e1f6e620bb44c009fc5fcb0c966be9aad16233563",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.page.steady.widen",
+      "source": "60ed6769e2c91d7aece2cf29f29f851916b8c5f24b2510f79d410adb5c0306e9",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.page.whatittakesin",
+      "source": "aa2d9328ffdab9ecd4b686580d5ca5762a7f8fca766ddb76d04ea70a8b49c3ca",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.reason.declined",
+      "source": "b0b605fbbcbda0358665ba6907e1bfcee085fef850898e89eaeda3009567fbee",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.reason.journaltooold",
+      "source": "dfaaa24bac1d9d7feb73516c6c8623c1dbb8a99978328976ccabf909fd79034f",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.reason.limitedlater",
+      "source": "73d9774887fc5220eef04e759b54c827c0c1357f827a4295745b8173453e7c94",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.reason.limitedprompt",
+      "source": "ece95671f36e82877713d341a4e847d84d6e24b52fbcb68305ef3b5ff62207de",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.reason.offlater",
+      "source": "659604178e6d26f687355c185000ac488a0790636e9a64a74b384c7eab280041",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.reason.unpaired",
+      "source": "04737121d4f65d1e1042cb279bcb24e15dbeebaef63092a9cb14a9d738e937e2",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.tile.choose",
+      "source": "72c6d0492a998516ebeaa01ba62c2021bbbbdbe88ec3fca8489a9bdda371f98f",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.tile.paused",
+      "source": "d9c657728a6109057bbfb9ec96721f7bd2173a0e68081b09a4e8f663a348b64a",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.tile.progress",
+      "source": "333ad2853e5281c4b89fc75613f10645baba562518dc72a539ad5f2047ac460a",
+      "contract": "ff2c5f39372e1da459f1490c2e7ea020c40e12a9bfafa4c5e8581d7427516539",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.tile.scanning",
+      "source": "571ab1e218ae31c60614293dee61dcb705faec529cdf76564c2da10f40a5c036",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.photos.tile.steady",
+      "source": "ee810cdc3e9ad93199558aab539f60fe1c0450a940dbf73ce81c9765e5b7f9e1",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
       "id": "ios.plural.calendarvocabulary.n62",
       "source": "81ea6380ebfadf1cb13071217bdb44a11df6e422d2e7bcea5edc212d880ec1f4",
       "contract": "1a4ba58c3b3e57c6b14aedfc9bc4d8790046b3c77351b4cf2fbe7a85c8d48026",
@@ -36850,6 +37060,13 @@
           "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"
         }
       ]
+    },
+    {
+      "id": "ios.screenshots.whatittakesin.withphotos",
+      "source": "1cd894213d2c1919009e845c611c65a051382331ea77315a07975cb97d0d06d3",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
     },
     {
       "id": "ios.screenshots.whatsalreadyinyourjournal",

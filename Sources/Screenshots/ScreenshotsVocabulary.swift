@@ -35,7 +35,11 @@ nonisolated enum ScreenshotsVocabulary {
     /// S21
     static let waitingForJournalUpdate = AppStrings.ios_screenshots_waitingforajournalupdate()
     /// I1
+    #if SOLSTONE_PHOTOS_LIBRARY
+    static let whatItTakesIn = AppStrings.ios_screenshots_whatittakesin_withphotos()
+    #else
     static let whatItTakesIn = AppStrings.ios_screenshots_whilethisisonthe()
+    #endif
     /// I3
     static let turnOn = AppStrings.ios_screenshots_turnonscreenshots()
     /// I4

@@ -1,0 +1,16 @@
+{
+  "description": "Reason shown when full photo access is later turned off in iOS settings.",
+  "context": "Native app presentation. Photos source page reason.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "659604178e6d26f687355c185000ac488a0790636e9a64a74b384c7eab280041",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -15,6 +15,9 @@ struct SharedSourceLifecycle: ViewModifier {
     @Environment(ObsidianSourceHandle.self) private var obsidian
     @Environment(ObsidianTransferHolder.self) private var transfer
     @Environment(ScreenshotsSourceHandle.self) private var screenshots
+    #if SOLSTONE_PHOTOS_LIBRARY
+    @Environment(PhotosLibrarySourceHandle.self) private var photos: PhotosLibrarySourceHandle?
+    #endif
     @Environment(SafariSourceModel.self) private var safari: SafariSourceModel?
     @Environment(WatchLink.self) private var watchLink
     @WatchPipelineInputReader private var watch
@@ -37,6 +40,11 @@ struct SharedSourceLifecycle: ViewModifier {
             observerSourcePauseState: pause, locationManager: location, screencastManager: screen,
             watchLane: watchLink.isPaired ? watch.assembly(now: Date()).lane : .noWatchPaired)
         var sources = [makeCalendarSource(calendar.source, isJournalPaired: true), makeScreenshotsSource(screenshots.source)]
+        #if SOLSTONE_PHOTOS_LIBRARY
+        if let photos {
+            sources.append(makePhotosSource(photos.source))
+        }
+        #endif
         if audio.isEnrolled || bundle.audio.state == .active { sources.append(bundle.audio) }
         if location.isEnabled || bundle.location.state == .active { sources.append(bundle.location) }
         if screen.isEnrolled || bundle.screencast.state == .active { sources.append(bundle.screencast) }

@@ -1,0 +1,16 @@
+{
+  "description": "Reason shown when limited photo access is chosen at the initial iOS prompt.",
+  "context": "Native app presentation. Photos source page reason.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ece95671f36e82877713d341a4e847d84d6e24b52fbcb68305ef3b5ff62207de",
+  "risk": "routine",
+  "auto_merge": true
+}

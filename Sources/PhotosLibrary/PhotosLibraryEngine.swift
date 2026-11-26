@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import Observation
 import os
 
 nonisolated private let photosEngineLog = Logger(subsystem: "app.solstone.swift", category: "photos-library")
@@ -17,31 +18,41 @@ nonisolated private let photosEngineLog = Logger(subsystem: "app.solstone.swift"
 ///    Privacy Principle 8 (never send before journal confirmation), and Privacy Principle 9
 ///    (`restartFirstSetup()` on new pairing).
 @MainActor
+@Observable
 final class PhotosLibraryEngine {
-    enum CapabilityState: Equatable, Sendable {
+    nonisolated enum CapabilityState: Equatable, Sendable {
         case unknown
         case listed
         case notListed
     }
 
-    private let media: any PhotosLibraryMediaAccess
-    private let store: PhotosLibraryStore
-    private let transport: any PhotosLibraryTransport
-    private let deviceNameProvider: @MainActor () -> String
-    private let deviceKind: String
-    private let allowICloudDownload: Bool
+    @ObservationIgnored private let media: any PhotosLibraryMediaAccess
+    @ObservationIgnored private let store: PhotosLibraryStore
+    @ObservationIgnored private let transport: any PhotosLibraryTransport
+    @ObservationIgnored private let intake: SourceIntakeStore?
+    @ObservationIgnored private let deviceNameProvider: @MainActor () -> String
+    @ObservationIgnored private let deviceKind: String
+    @ObservationIgnored private let allowICloudDownload: Bool
 
+    private(set) var document: PhotosLibraryDocument
+    private(set) var access: ScreenshotsAccess
     private(set) var capability: CapabilityState = .unknown
     private(set) var isScanning = false
     private(set) var isSyncingCopies = false
+    private(set) var scanChecked = 0
+    private(set) var scanTotal = 0
+    private(set) var journalSummary: PhotosJournalDashboardSummary?
+    private(set) var lastPromptResult: ScreenshotsAccess?
     private(set) var lastError: String?
+    @ObservationIgnored private var isUITestFixture = false
 
-    var isPaired: () -> Bool = { false }
+    @ObservationIgnored var isPaired: () -> Bool = { false }
 
     init(
         media: any PhotosLibraryMediaAccess,
         store: PhotosLibraryStore,
         transport: any PhotosLibraryTransport,
+        intake: SourceIntakeStore? = nil,
         deviceNameProvider: @escaping @MainActor () -> String = { "iPhone" },
         deviceKind: String = "iphone",
         allowICloudDownload: Bool = true
@@ -49,13 +60,39 @@ final class PhotosLibraryEngine {
         self.media = media
         self.store = store
         self.transport = transport
+        self.intake = intake
         self.deviceNameProvider = deviceNameProvider
         self.deviceKind = deviceKind
         self.allowICloudDownload = allowICloudDownload
+        self.document = store.document
+        self.access = media.photosAccess()
+        self.scanChecked = store.document.itemsChecked
+        self.scanTotal = store.document.itemsTotal
     }
 
-    var document: PhotosLibraryDocument {
-        self.store.document
+    private func syncStore() {
+        self.store.save()
+        self.document = self.store.document
+    }
+
+    func viewState(locale: Locale = .current) -> PhotosLibraryViewState {
+        PhotosLibraryViewState.resolve(
+            paired: self.isPaired(),
+            access: self.access,
+            capability: self.capability,
+            document: self.document,
+            isScanning: self.isScanning,
+            scanChecked: self.scanChecked,
+            scanTotal: self.scanTotal,
+            journal: self.journalSummary,
+            lastPromptResult: self.lastPromptResult,
+            locale: locale
+        )
+    }
+
+    var waitingCount: Int {
+        guard self.document.enabled, !self.document.paused else { return 0 }
+        return self.journalSummary?.progress.waitingOnPhone ?? 0
     }
 
     func refreshCapability() async -> CapabilityState {
@@ -70,13 +107,51 @@ final class PhotosLibraryEngine {
         return self.capability
     }
 
+    func refreshJournalState() async {
+        guard self.isPaired() else {
+            self.journalSummary = nil
+            return
+        }
+        guard let summary = await self.transport.fetchDashboardState() else { return }
+        self.journalSummary = summary
+        if summary.state == "off" && self.store.document.enabled {
+            self.media.setPhotosLibraryObserving(false)
+            self.store.document.enabled = false
+            self.store.document.paused = false
+            self.store.document.scanComplete = false
+            self.store.document.changeToken = nil
+            self.syncStore()
+        }
+    }
+
+    func foreground() async {
+        guard !self.isUITestFixture else { return }
+        self.access = self.media.photosAccess()
+        guard self.isPaired() else {
+            self.capability = .unknown
+            self.journalSummary = nil
+            return
+        }
+        let cap = await self.refreshCapability()
+        if cap == .listed {
+            await self.refreshJournalState()
+        }
+        if self.store.document.enabled && self.access != .full {
+            await self.reportDeviceStatus(access: self.access, scanPaused: false)
+            return
+        }
+        await self.syncOnce()
+    }
+
     /// Enable the Photos Library source after confirming full PhotoKit access,
     /// start observing changes, and run the initial metadata-only scan.
     func enableAndScan() async -> Bool {
         var access = self.media.photosAccess()
         if access == .notDetermined {
             access = await self.media.requestPhotosAccess()
+            self.lastPromptResult = access
         }
+        self.access = access
         guard access == .full else {
             await self.reportDeviceStatus(access: access, scanPaused: false)
             return false
@@ -84,19 +159,36 @@ final class PhotosLibraryEngine {
         self.store.document.everEnabled = true
         self.store.document.enabled = true
         self.store.document.paused = false
-        self.store.save()
+        self.store.document.scanComplete = false
+        self.syncStore()
         self.media.setPhotosLibraryObserving(true)
-        return await self.runFullMetadataScan()
+        let ok = await self.runFullMetadataScan()
+        if ok {
+            await self.refreshJournalState()
+        }
+        return ok
     }
 
     func pause() {
         self.store.document.paused = true
-        self.store.save()
+        self.syncStore()
+    }
+
+    func pauseWithJournalSync() async {
+        self.pause()
+        if self.isPaired(), self.capability == .listed {
+            try? await self.transport.postPause()
+            await self.refreshJournalState()
+        }
     }
 
     func resume() async {
         self.store.document.paused = false
-        self.store.save()
+        self.syncStore()
+        if self.isPaired(), self.capability == .listed {
+            try? await self.transport.postResume()
+            await self.refreshJournalState()
+        }
         await self.syncOnce()
     }
 
@@ -105,9 +197,14 @@ final class PhotosLibraryEngine {
     func restartFirstSetup() {
         self.media.setPhotosLibraryObserving(false)
         self.store.resetForNewPairing()
+        self.document = self.store.document
         self.capability = .unknown
         self.isScanning = false
         self.isSyncingCopies = false
+        self.scanChecked = 0
+        self.scanTotal = 0
+        self.journalSummary = nil
+        self.lastPromptResult = nil
         self.lastError = nil
     }
 
@@ -130,20 +227,23 @@ final class PhotosLibraryEngine {
 
         do {
             let smartAlbums = try await self.media.fetchSmartAlbumCatalog()
+            let estimatedTotal = smartAlbums.first(where: { $0.subtype == 209 })?.count ?? 0
+            self.scanChecked = 0
+            self.scanTotal = estimatedTotal
             let deviceName = self.deviceNameProvider()
             try await self.transport.postScanStart(
                 PhotosScanStartPayload(
                     deviceName: deviceName,
                     deviceKind: self.deviceKind,
                     accessState: PhotosLibraryWire.accessString(access),
-                    totalItems: 0,
+                    totalItems: estimatedTotal,
                     smartAlbums: smartAlbums
                 )
             )
             let transport = self.transport
             let summary = try await self.media.scanAllVisibleMetadata(
                 batchSize: PhotosLibraryWire.scanBatchSize
-            ) { batchIndex, rows, itemsChecked in
+            ) { [weak self] batchIndex, rows, itemsChecked in
                 try await transport.postScanBatch(
                     PhotosScanBatchPayload(
                         batchIndex: batchIndex,
@@ -151,6 +251,12 @@ final class PhotosLibraryEngine {
                         itemsChecked: itemsChecked
                     )
                 )
+                await MainActor.run {
+                    self?.scanChecked = itemsChecked
+                    if let currentTotal = self?.scanTotal, itemsChecked > currentTotal {
+                        self?.scanTotal = itemsChecked
+                    }
+                }
             }
             try await self.transport.postScanFinish(
                 PhotosScanFinishPayload(
@@ -165,7 +271,9 @@ final class PhotosLibraryEngine {
             self.store.document.itemsTotal = summary.totalItems
             self.store.document.changeToken = summary.changeToken
             self.store.document.lastScanAt = Date()
-            self.store.save()
+            self.scanChecked = summary.totalItems
+            self.scanTotal = summary.totalItems
+            self.syncStore()
             return true
         } catch {
             self.lastError = String(describing: error)
@@ -196,7 +304,7 @@ final class PhotosLibraryEngine {
             guard !addedOrUpdated.isEmpty || !removedIDs.isEmpty else {
                 if let nextToken {
                     self.store.document.changeToken = nextToken
-                    self.store.save()
+                    self.syncStore()
                 }
                 return
             }
@@ -213,7 +321,7 @@ final class PhotosLibraryEngine {
                 )
                 self.store.document.changeToken = nextToken
                 self.store.document.lastScanAt = Date()
-                self.store.save()
+                self.syncStore()
             } catch {
                 self.lastError = String(describing: error)
                 photosEngineLog.error("photos library delta sync failed")
@@ -281,8 +389,10 @@ final class PhotosLibraryEngine {
                                 jpegBase64: data.base64EncodedString()
                             )
                         )
+                        let deliveredAt = Date()
                         self.store.document.sentCount += 1
-                        self.store.document.lastUploadAt = Date()
+                        self.store.document.lastUploadAt = deliveredAt
+                        self.intake?.recordPhoto(assetID: item.assetID, now: deliveredAt)
                         handled += 1
                     case .gone:
                         try await self.transport.postCopy(
@@ -315,10 +425,13 @@ final class PhotosLibraryEngine {
                 }
             }
             self.store.document.icloudWaitingCount = icloudWaiting
-            self.store.save()
+            self.syncStore()
             if response.remaining == 0 {
                 break
             }
+        }
+        if handled > 0 {
+            await self.refreshJournalState()
         }
         return handled
     }
@@ -334,6 +447,99 @@ final class PhotosLibraryEngine {
             return
         }
         await self.pollAndDeliverWantedCopies()
+    }
+
+    /// Deterministic UI-test fixture hook (used only when `--ui-test` is active).
+    func applyUITestState(_ mode: String) {
+        self.isUITestFixture = true
+        self.capability = .listed
+        switch mode {
+        case "fresh":
+            self.access = .notDetermined
+            self.store.document = PhotosLibraryDocument()
+            self.journalSummary = nil
+        case "already-granted":
+            self.access = .full
+            self.store.document = PhotosLibraryDocument()
+            self.journalSummary = nil
+        case "scanning":
+            self.access = .full
+            self.store.document = PhotosLibraryDocument(everEnabled: true, enabled: true, paused: false, scanComplete: false, itemsChecked: 1_200, itemsTotal: 4_500)
+            self.isScanning = true
+            self.scanChecked = 1_200
+            self.scanTotal = 4_500
+            self.journalSummary = PhotosJournalDashboardSummary(
+                state: "setting_up",
+                substate: "scanning",
+                attentionReason: nil,
+                choice: .init(range: nil, canWiden: true),
+                progress: .init(chosenTotal: 0, arrived: 0, inJournal: 0, waitingOnPhone: 0),
+                scan: .init(itemsChecked: 1_200, itemsTotal: 4_500, paused: false)
+            )
+        case "choose":
+            self.access = .full
+            self.store.document = PhotosLibraryDocument(everEnabled: true, enabled: true, paused: false, scanComplete: true, itemsChecked: 4_500, itemsTotal: 4_500)
+            self.isScanning = false
+            self.journalSummary = PhotosJournalDashboardSummary(
+                state: "setting_up",
+                substate: "choose",
+                attentionReason: nil,
+                choice: .init(range: nil, canWiden: true),
+                progress: .init(chosenTotal: 0, arrived: 0, inJournal: 0, waitingOnPhone: 0),
+                scan: .init(itemsChecked: 4_500, itemsTotal: 4_500, paused: false)
+            )
+        case "bringing-in":
+            self.access = .full
+            self.store.document = PhotosLibraryDocument(everEnabled: true, enabled: true, paused: false, scanComplete: true, itemsChecked: 4_500, itemsTotal: 4_500, sentCount: 80)
+            self.isScanning = false
+            self.journalSummary = PhotosJournalDashboardSummary(
+                state: "on",
+                substate: "bringing_in",
+                attentionReason: nil,
+                choice: .init(range: "1y", canWiden: true),
+                progress: .init(chosenTotal: 240, arrived: 80, inJournal: 80, waitingOnPhone: 160),
+                scan: .init(itemsChecked: 4_500, itemsTotal: 4_500, paused: false)
+            )
+        case "steady":
+            self.access = .full
+            self.store.document = PhotosLibraryDocument(everEnabled: true, enabled: true, paused: false, scanComplete: true, itemsChecked: 4_500, itemsTotal: 4_500, sentCount: 240)
+            self.isScanning = false
+            self.journalSummary = PhotosJournalDashboardSummary(
+                state: "on",
+                substate: "steady",
+                attentionReason: nil,
+                choice: .init(range: "1y", canWiden: true),
+                progress: .init(chosenTotal: 240, arrived: 240, inJournal: 235, waitingOnPhone: 0),
+                scan: .init(itemsChecked: 4_500, itemsTotal: 4_500, paused: false)
+            )
+        case "paused":
+            self.access = .full
+            self.store.document = PhotosLibraryDocument(everEnabled: true, enabled: true, paused: true, scanComplete: true, itemsChecked: 4_500, itemsTotal: 4_500, sentCount: 80)
+            self.isScanning = false
+            self.journalSummary = PhotosJournalDashboardSummary(
+                state: "paused",
+                substate: "paused",
+                attentionReason: nil,
+                choice: .init(range: "1y", canWiden: true),
+                progress: .init(chosenTotal: 240, arrived: 80, inJournal: 80, waitingOnPhone: 160),
+                scan: .init(itemsChecked: 4_500, itemsTotal: 4_500, paused: false)
+            )
+        case "limited-later":
+            self.access = .limited
+            self.store.document = PhotosLibraryDocument(everEnabled: true, enabled: true, paused: false, scanComplete: true, itemsChecked: 4_500, itemsTotal: 4_500, sentCount: 240)
+            self.isScanning = false
+            self.journalSummary = PhotosJournalDashboardSummary(
+                state: "needs_attention",
+                substate: "access_limited",
+                attentionReason: "access_limited",
+                choice: .init(range: "1y", canWiden: true),
+                progress: .init(chosenTotal: 240, arrived: 240, inJournal: 235, waitingOnPhone: 0),
+                scan: .init(itemsChecked: 4_500, itemsTotal: 4_500, paused: false)
+            )
+        default:
+            break
+        }
+        self.document = self.store.document
     }
 
     private func reportDeviceStatus(access: ScreenshotsAccess, scanPaused: Bool) async {

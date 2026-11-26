@@ -1338,6 +1338,7 @@ nonisolated enum AppStrings {
     static func ios_intake_count_items(_ count: Int, _ display: String) -> String { render("m696f732e696e74616b652e636f756e742e6974656d73", [Int64(count), display, String(count)]) }
     static func ios_intake_count_notes(_ count: Int, _ display: String) -> String { render("m696f732e696e74616b652e636f756e742e6e6f746573", [Int64(count), display, String(count)]) }
     static func ios_intake_count_pages(_ count: Int, _ display: String) -> String { render("m696f732e696e74616b652e636f756e742e7061676573", [Int64(count), display, String(count)]) }
+    static func ios_intake_count_photos(_ count: Int, _ display: String) -> String { render("m696f732e696e74616b652e636f756e742e70686f746f73", [Int64(count), display, String(count)]) }
     static func ios_intake_count_screenshots(_ count: Int, _ display: String) -> String { render("m696f732e696e74616b652e636f756e742e73637265656e73686f7473", [Int64(count), display, String(count)]) }
     static func ios_intake_date_day(_ month: String, _ day: String) -> String { render("m696f732e696e74616b652e646174652e646179", [month, day]) }
     static func ios_intake_date_year(_ month: String, _ day: String, _ year: String) -> String { render("m696f732e696e74616b652e646174652e79656172", [month, day, year]) }
@@ -1876,6 +1877,61 @@ nonisolated enum AppStrings {
     static func ios_photolibrary_pause_resource() -> LocalizedStringResource { resource("m696f732e70686f746f6c6962726172792e7061757365") }
     static func ios_photolibrary_resume() -> String { render("m696f732e70686f746f6c6962726172792e726573756d65", []) }
     static func ios_photolibrary_resume_resource() -> LocalizedStringResource { resource("m696f732e70686f746f6c6962726172792e726573756d65") }
+    static func ios_photos_action_choose() -> String { render("m696f732e70686f746f732e616374696f6e2e63686f6f7365", []) }
+    static func ios_photos_action_choose_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e616374696f6e2e63686f6f7365") }
+    static func ios_photos_action_openjournal() -> String { render("m696f732e70686f746f732e616374696f6e2e6f70656e6a6f75726e616c", []) }
+    static func ios_photos_action_openjournal_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e616374696f6e2e6f70656e6a6f75726e616c") }
+    static func ios_photos_action_scan() -> String { render("m696f732e70686f746f732e616374696f6e2e7363616e", []) }
+    static func ios_photos_action_scan_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e616374696f6e2e7363616e") }
+    static func ios_photos_action_turnon() -> String { render("m696f732e70686f746f732e616374696f6e2e7475726e6f6e", []) }
+    static func ios_photos_action_turnon_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e616374696f6e2e7475726e6f6e") }
+    static func ios_photos_fact_keepswhatsin() -> String { render("m696f732e70686f746f732e666163742e6b656570737768617473696e", []) }
+    static func ios_photos_fact_keepswhatsin_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e666163742e6b656570737768617473696e") }
+    static func ios_photos_fact_staysifdeleted() -> String { render("m696f732e70686f746f732e666163742e7374617973696664656c65746564", []) }
+    static func ios_photos_fact_staysifdeleted_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e666163742e7374617973696664656c65746564") }
+    static func ios_photos_hint_scan() -> String { render("m696f732e70686f746f732e68696e742e7363616e", []) }
+    static func ios_photos_hint_scan_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e68696e742e7363616e") }
+    static func ios_photos_hint_turnon() -> String { render("m696f732e70686f746f732e68696e742e7475726e6f6e", []) }
+    static func ios_photos_hint_turnon_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e68696e742e7475726e6f6e") }
+    static func ios_photos_label() -> String { render("m696f732e70686f746f732e6c6162656c", []) }
+    static func ios_photos_label_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e6c6162656c") }
+    static func ios_photos_page_alreadygranted() -> String { render("m696f732e70686f746f732e706167652e616c72656164796772616e746564", []) }
+    static func ios_photos_page_alreadygranted_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e706167652e616c72656164796772616e746564") }
+    static func ios_photos_page_honesty() -> String { render("m696f732e70686f746f732e706167652e686f6e65737479", []) }
+    static func ios_photos_page_honesty_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e706167652e686f6e65737479") }
+    static func ios_photos_page_progress(_ done: String, _ total: String) -> String { render("m696f732e70686f746f732e706167652e70726f6772657373", [done, total]) }
+    static func ios_photos_page_scandone() -> String { render("m696f732e70686f746f732e706167652e7363616e646f6e65", []) }
+    static func ios_photos_page_scandone_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e706167652e7363616e646f6e65") }
+    static func ios_photos_page_scanning_progress(_ checked: String, _ total: String) -> String { render("m696f732e70686f746f732e706167652e7363616e6e696e672e70726f6772657373", [checked, total]) }
+    static func ios_photos_page_scanning_starting() -> String { render("m696f732e70686f746f732e706167652e7363616e6e696e672e7374617274696e67", []) }
+    static func ios_photos_page_scanning_starting_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e706167652e7363616e6e696e672e7374617274696e67") }
+    static func ios_photos_page_steady_all() -> String { render("m696f732e70686f746f732e706167652e7374656164792e616c6c", []) }
+    static func ios_photos_page_steady_all_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e706167652e7374656164792e616c6c") }
+    static func ios_photos_page_steady_widen() -> String { render("m696f732e70686f746f732e706167652e7374656164792e776964656e", []) }
+    static func ios_photos_page_steady_widen_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e706167652e7374656164792e776964656e") }
+    static func ios_photos_page_whatittakesin() -> String { render("m696f732e70686f746f732e706167652e77686174697474616b6573696e", []) }
+    static func ios_photos_page_whatittakesin_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e706167652e77686174697474616b6573696e") }
+    static func ios_photos_reason_declined() -> String { render("m696f732e70686f746f732e726561736f6e2e6465636c696e6564", []) }
+    static func ios_photos_reason_declined_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e726561736f6e2e6465636c696e6564") }
+    static func ios_photos_reason_journaltooold() -> String { render("m696f732e70686f746f732e726561736f6e2e6a6f75726e616c746f6f6f6c64", []) }
+    static func ios_photos_reason_journaltooold_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e726561736f6e2e6a6f75726e616c746f6f6f6c64") }
+    static func ios_photos_reason_limitedlater() -> String { render("m696f732e70686f746f732e726561736f6e2e6c696d697465646c61746572", []) }
+    static func ios_photos_reason_limitedlater_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e726561736f6e2e6c696d697465646c61746572") }
+    static func ios_photos_reason_limitedprompt() -> String { render("m696f732e70686f746f732e726561736f6e2e6c696d6974656470726f6d7074", []) }
+    static func ios_photos_reason_limitedprompt_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e726561736f6e2e6c696d6974656470726f6d7074") }
+    static func ios_photos_reason_offlater() -> String { render("m696f732e70686f746f732e726561736f6e2e6f66666c61746572", []) }
+    static func ios_photos_reason_offlater_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e726561736f6e2e6f66666c61746572") }
+    static func ios_photos_reason_unpaired() -> String { render("m696f732e70686f746f732e726561736f6e2e756e706169726564", []) }
+    static func ios_photos_reason_unpaired_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e726561736f6e2e756e706169726564") }
+    static func ios_photos_tile_choose() -> String { render("m696f732e70686f746f732e74696c652e63686f6f7365", []) }
+    static func ios_photos_tile_choose_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e74696c652e63686f6f7365") }
+    static func ios_photos_tile_paused() -> String { render("m696f732e70686f746f732e74696c652e706175736564", []) }
+    static func ios_photos_tile_paused_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e74696c652e706175736564") }
+    static func ios_photos_tile_progress(_ done: String, _ total: String) -> String { render("m696f732e70686f746f732e74696c652e70726f6772657373", [done, total]) }
+    static func ios_photos_tile_scanning() -> String { render("m696f732e70686f746f732e74696c652e7363616e6e696e67", []) }
+    static func ios_photos_tile_scanning_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e74696c652e7363616e6e696e67") }
+    static func ios_photos_tile_steady() -> String { render("m696f732e70686f746f732e74696c652e737465616479", []) }
+    static func ios_photos_tile_steady_resource() -> LocalizedStringResource { resource("m696f732e70686f746f732e74696c652e737465616479") }
     static func ios_plural_calendarvocabulary_n62(_ count: Int, _ value0: String) -> String { render("m696f732e706c7572616c2e63616c656e646172766f636162756c6172792e6e3632", [Int64(count), value0, String(count)]) }
     static func ios_plural_calendarvocabulary_n83(_ count: Int, _ value0: String) -> String { render("m696f732e706c7572616c2e63616c656e646172766f636162756c6172792e6e3833", [Int64(count), value0, String(count)]) }
     static func ios_plural_calendarvocabulary_n87(_ count: Int, _ value0: String) -> String { render("m696f732e706c7572616c2e63616c656e646172766f636162756c6172792e6e3837", [Int64(count), value0, String(count)]) }
@@ -2154,6 +2210,8 @@ nonisolated enum AppStrings {
     static func ios_screenshots_turnonscreenshots_resource() -> LocalizedStringResource { resource("m696f732e73637265656e73686f74732e7475726e6f6e73637265656e73686f7473") }
     static func ios_screenshots_waitingforajournalupdate() -> String { render("m696f732e73637265656e73686f74732e77616974696e67666f72616a6f75726e616c757064617465", []) }
     static func ios_screenshots_waitingforajournalupdate_resource() -> LocalizedStringResource { resource("m696f732e73637265656e73686f74732e77616974696e67666f72616a6f75726e616c757064617465") }
+    static func ios_screenshots_whatittakesin_withphotos() -> String { render("m696f732e73637265656e73686f74732e77686174697474616b6573696e2e7769746870686f746f73", []) }
+    static func ios_screenshots_whatittakesin_withphotos_resource() -> LocalizedStringResource { resource("m696f732e73637265656e73686f74732e77686174697474616b6573696e2e7769746870686f746f73") }
     static func ios_screenshots_whatsalreadyinyourjournal() -> String { render("m696f732e73637265656e73686f74732e7768617473616c7265616479696e796f75726a6f75726e616c", []) }
     static func ios_screenshots_whatsalreadyinyourjournal_resource() -> LocalizedStringResource { resource("m696f732e73637265656e73686f74732e7768617473616c7265616479696e796f75726a6f75726e616c") }
     static func ios_screenshots_whilethisisonthe() -> String { render("m696f732e73637265656e73686f74732e7768696c657468697369736f6e746865", []) }

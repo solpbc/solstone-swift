@@ -1,0 +1,16 @@
+{
+  "description": "Honesty line below controls explaining iOS background limits for photo sync.",
+  "context": "Native app presentation. Photos source page.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "58fc5121e0c1a827c0f6e28e0ce7bc01ea8c36dabefac237bb2f4f85a3a7cbb1",
+  "risk": "routine",
+  "auto_merge": true
+}

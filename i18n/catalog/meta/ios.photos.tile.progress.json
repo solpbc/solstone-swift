@@ -1,0 +1,25 @@
+{
+  "description": "Tile sub-line for the Photos source while chosen photos are arriving.",
+  "context": "Native app presentation. Home tile progress sub-line.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "done",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "333ad2853e5281c4b89fc75613f10645baba562518dc72a539ad5f2047ac460a",
+  "risk": "routine",
+  "auto_merge": true
+}

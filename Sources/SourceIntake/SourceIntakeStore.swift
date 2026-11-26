@@ -25,6 +25,7 @@ nonisolated enum SourceIntakeSeenLog: String, CaseIterable, Sendable {
     case watch
     case imports = "import"
     case screenshots
+    case photos
     case calendar
 
     var fileName: String { "seen-\(self.rawValue).log" }
@@ -68,6 +69,7 @@ nonisolated struct SourceIntakeSnapshot: Equatable, Sendable {
     var watch: SourceIntakeLane
     var obsidian: SourceIntakeLane
     var screenshots: SourceIntakeLane = SourceIntakeLane(total: 0, last: nil)
+    var photos: SourceIntakeLane = SourceIntakeLane(total: 0, last: nil)
     var imports: SourceIntakeLane
 
     static let empty = SourceIntakeSnapshot(
@@ -257,6 +259,20 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
             lane.items += 1
             lane.last = self.stamp(now)
             file.screenshots = lane
+            return true
+        }
+    }
+
+    /// One library photo copy delivered from this device, counted once per asset ID.
+    @discardableResult
+    func recordPhoto(assetID: String, now: Date) -> SourceIntakeResult {
+        self.mutate(now: now, create: true) { file, seen in
+            var lane = file.photos ?? CountLane()
+            guard try !seen.contains(assetID, in: .photos, tail: lane.seen) else { return false }
+            lane.seen.append(assetID)
+            lane.items += 1
+            lane.last = self.stamp(now)
+            file.photos = lane
             return true
         }
     }
@@ -782,7 +798,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
         let stamps = [
             file.audio.last, file.screen.last, file.location.last, file.calendar.last,
             file.safari.last, file.watch.last, file.imports.last, file.obsidian?.last,
-            file.screenshots?.last, file.location.cursor?.t,
+            file.screenshots?.last, file.photos?.last, file.location.cursor?.t,
         ]
         for stamp in stamps {
             if let stamp, self.parseStamp(stamp) == nil { return false }
@@ -827,6 +843,7 @@ nonisolated private extension SourceIntakeStore {
         var imports: CountLane
         var obsidian: ObsidianLane?
         var screenshots: CountLane?
+        var photos: CountLane?
         /// Bytes of each lane's seen log this file's keys were moved into, by lane.
         var seenLogs: [String: Int]?
 
@@ -842,6 +859,7 @@ nonisolated private extension SourceIntakeStore {
             case imports = "import"
             case obsidian
             case screenshots
+            case photos
             case seenLogs = "seen_logs"
         }
 
@@ -856,7 +874,8 @@ nonisolated private extension SourceIntakeStore {
             watch: DurationLane,
             imports: CountLane,
             obsidian: ObsidianLane? = nil,
-            screenshots: CountLane? = nil
+            screenshots: CountLane? = nil,
+            photos: CountLane? = nil
         ) {
             self.version = version
             self.started = started
@@ -869,6 +888,7 @@ nonisolated private extension SourceIntakeStore {
             self.imports = imports
             self.obsidian = obsidian
             self.screenshots = screenshots
+            self.photos = photos
         }
 
         init(from decoder: Decoder) throws {
@@ -884,6 +904,7 @@ nonisolated private extension SourceIntakeStore {
             self.imports = try container.decode(CountLane.self, forKey: .imports)
             self.obsidian = try container.decodeIfPresent(ObsidianLane.self, forKey: .obsidian)
             self.screenshots = try container.decodeIfPresent(CountLane.self, forKey: .screenshots)
+            self.photos = try container.decodeIfPresent(CountLane.self, forKey: .photos)
             self.seenLogs = try container.decodeIfPresent([String: Int].self, forKey: .seenLogs)
         }
 
@@ -903,6 +924,9 @@ nonisolated private extension SourceIntakeStore {
             }
             if let screenshots {
                 try container.encode(screenshots, forKey: .screenshots)
+            }
+            if let photos {
+                try container.encode(photos, forKey: .photos)
             }
             if let seenLogs {
                 try container.encode(seenLogs, forKey: .seenLogs)
@@ -934,6 +958,7 @@ nonisolated private extension SourceIntakeStore {
             self.obsidian?.seen.sort()
             self.obsidian?.seededVaults.sort()
             self.screenshots?.seen.sort()
+            self.photos?.seen.sort()
         }
 
         /// The keys of a lane still held in this file rather than its log.
@@ -945,6 +970,7 @@ nonisolated private extension SourceIntakeStore {
             case .watch: self.watch.seen
             case .imports: self.imports.seen
             case .screenshots: self.screenshots?.seen ?? []
+            case .photos: self.photos?.seen ?? []
             case .calendar: self.calendar.seen
             }
         }
@@ -957,6 +983,7 @@ nonisolated private extension SourceIntakeStore {
             case .watch: self.watch.seen = keys
             case .imports: self.imports.seen = keys
             case .screenshots: self.screenshots?.seen = keys
+            case .photos: self.photos?.seen = keys
             case .calendar: self.calendar.seen = keys
             }
         }
@@ -986,6 +1013,7 @@ nonisolated private extension SourceIntakeStore {
                 watch: self.watch.lane(parse: parse),
                 obsidian: SourceIntakeLane(total: self.obsidian?.notes ?? 0, last: self.obsidian?.last.flatMap(parse)),
                 screenshots: SourceIntakeLane(total: self.screenshots?.items ?? 0, last: self.screenshots?.last.flatMap(parse)),
+                photos: SourceIntakeLane(total: self.photos?.items ?? 0, last: self.photos?.last.flatMap(parse)),
                 imports: SourceIntakeLane(total: self.imports.items, last: self.imports.last.flatMap(parse))
             )
         }

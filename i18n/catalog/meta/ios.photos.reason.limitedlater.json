@@ -1,0 +1,16 @@
+{
+  "description": "Reason shown when full photo access is later reduced to limited access.",
+  "context": "Native app presentation. Photos source page reason.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "73d9774887fc5220eef04e759b54c827c0c1357f827a4295745b8173453e7c94",
+  "risk": "routine",
+  "auto_merge": true
+}

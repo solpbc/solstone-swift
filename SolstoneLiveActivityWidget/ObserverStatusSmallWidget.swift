@@ -95,7 +95,7 @@ private struct ObserverStatusSmallView: View {
             AppStrings.ios_location_sourcedisplayname()
         case .screencast:
             SourceVocabulary.screencastDisplayName
-        case .watch, .calendar, .safari, .obsidian, .screenshots, nil:
+        case .watch, .calendar, .safari, .obsidian, .screenshots, .photos, nil:
             nil
         }
     }

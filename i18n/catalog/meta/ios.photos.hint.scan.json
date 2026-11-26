@@ -1,0 +1,16 @@
+{
+  "description": "Accessibility hint for the scan your library button.",
+  "context": "Native app presentation. Accessibility hint.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "1ade5b984f89ecb2f58b6de432529176cd6c02dbb9db1e5e6dda4d7cfecc6723",
+  "risk": "routine",
+  "auto_merge": true
+}

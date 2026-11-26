@@ -14141,6 +14141,38 @@
       }
     },
     {
+      "id": "ios.intake.count.photos",
+      "resource": "m696f732e696e74616b652e636f756e742e70686f746f73",
+      "namespace": "ios.intake.count",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        },
+        {
+          "name": "display",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
       "id": "ios.intake.count.screenshots",
       "resource": "m696f732e696e74616b652e636f756e742e73637265656e73686f7473",
       "namespace": "ios.intake.count",
@@ -20591,6 +20623,399 @@
       "selector": null
     },
     {
+      "id": "ios.photos.action.choose",
+      "resource": "m696f732e70686f746f732e616374696f6e2e63686f6f7365",
+      "namespace": "ios.photos.action",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.action.openjournal",
+      "resource": "m696f732e70686f746f732e616374696f6e2e6f70656e6a6f75726e616c",
+      "namespace": "ios.photos.action",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.action.scan",
+      "resource": "m696f732e70686f746f732e616374696f6e2e7363616e",
+      "namespace": "ios.photos.action",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.action.turnon",
+      "resource": "m696f732e70686f746f732e616374696f6e2e7475726e6f6e",
+      "namespace": "ios.photos.action",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.fact.keepswhatsin",
+      "resource": "m696f732e70686f746f732e666163742e6b656570737768617473696e",
+      "namespace": "ios.photos.fact",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.fact.staysifdeleted",
+      "resource": "m696f732e70686f746f732e666163742e7374617973696664656c65746564",
+      "namespace": "ios.photos.fact",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.hint.scan",
+      "resource": "m696f732e70686f746f732e68696e742e7363616e",
+      "namespace": "ios.photos.hint",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.hint.turnon",
+      "resource": "m696f732e70686f746f732e68696e742e7475726e6f6e",
+      "namespace": "ios.photos.hint",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.label",
+      "resource": "m696f732e70686f746f732e6c6162656c",
+      "namespace": "ios.photos",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.page.alreadygranted",
+      "resource": "m696f732e70686f746f732e706167652e616c72656164796772616e746564",
+      "namespace": "ios.photos.page",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.page.honesty",
+      "resource": "m696f732e70686f746f732e706167652e686f6e65737479",
+      "namespace": "ios.photos.page",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.page.progress",
+      "resource": "m696f732e70686f746f732e706167652e70726f6772657373",
+      "namespace": "ios.photos.page",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "done",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.page.scandone",
+      "resource": "m696f732e70686f746f732e706167652e7363616e646f6e65",
+      "namespace": "ios.photos.page",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.page.scanning.progress",
+      "resource": "m696f732e70686f746f732e706167652e7363616e6e696e672e70726f6772657373",
+      "namespace": "ios.photos.page.scanning",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "checked",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.page.scanning.starting",
+      "resource": "m696f732e70686f746f732e706167652e7363616e6e696e672e7374617274696e67",
+      "namespace": "ios.photos.page.scanning",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.page.steady.all",
+      "resource": "m696f732e70686f746f732e706167652e7374656164792e616c6c",
+      "namespace": "ios.photos.page.steady",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.page.steady.widen",
+      "resource": "m696f732e70686f746f732e706167652e7374656164792e776964656e",
+      "namespace": "ios.photos.page.steady",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.page.whatittakesin",
+      "resource": "m696f732e70686f746f732e706167652e77686174697474616b6573696e",
+      "namespace": "ios.photos.page",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.reason.declined",
+      "resource": "m696f732e70686f746f732e726561736f6e2e6465636c696e6564",
+      "namespace": "ios.photos.reason",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.reason.journaltooold",
+      "resource": "m696f732e70686f746f732e726561736f6e2e6a6f75726e616c746f6f6f6c64",
+      "namespace": "ios.photos.reason",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.reason.limitedlater",
+      "resource": "m696f732e70686f746f732e726561736f6e2e6c696d697465646c61746572",
+      "namespace": "ios.photos.reason",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.reason.limitedprompt",
+      "resource": "m696f732e70686f746f732e726561736f6e2e6c696d6974656470726f6d7074",
+      "namespace": "ios.photos.reason",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.reason.offlater",
+      "resource": "m696f732e70686f746f732e726561736f6e2e6f66666c61746572",
+      "namespace": "ios.photos.reason",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.reason.unpaired",
+      "resource": "m696f732e70686f746f732e726561736f6e2e756e706169726564",
+      "namespace": "ios.photos.reason",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.tile.choose",
+      "resource": "m696f732e70686f746f732e74696c652e63686f6f7365",
+      "namespace": "ios.photos.tile",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.tile.paused",
+      "resource": "m696f732e70686f746f732e74696c652e706175736564",
+      "namespace": "ios.photos.tile",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.tile.progress",
+      "resource": "m696f732e70686f746f732e74696c652e70726f6772657373",
+      "namespace": "ios.photos.tile",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "done",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.tile.scanning",
+      "resource": "m696f732e70686f746f732e74696c652e7363616e6e696e67",
+      "namespace": "ios.photos.tile",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.photos.tile.steady",
+      "resource": "m696f732e70686f746f732e74696c652e737465616479",
+      "namespace": "ios.photos.tile",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.plural.calendarvocabulary.n62",
       "resource": "m696f732e706c7572616c2e63616c656e646172766f636162756c6172792e6e3632",
       "namespace": "ios.plural.calendarvocabulary",
@@ -24448,6 +24873,18 @@
       "id": "ios.screenshots.waitingforajournalupdate",
       "resource": "m696f732e73637265656e73686f74732e77616974696e67666f72616a6f75726e616c757064617465",
       "namespace": "ios.screenshots",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.screenshots.whatittakesin.withphotos",
+      "resource": "m696f732e73637265656e73686f74732e77686174697474616b6573696e2e7769746870686f746f73",
+      "namespace": "ios.screenshots.whatittakesin",
       "owner": "ios",
       "tombstone": false,
       "replacement": null,

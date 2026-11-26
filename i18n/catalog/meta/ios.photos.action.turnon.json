@@ -1,0 +1,16 @@
+{
+  "description": "Primary button label to turn on the Photos source and request iOS photo access.",
+  "context": "Native app presentation. Primary button label.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "b833a01ad233d4224f831a47dd9a97794dc6e660516aff79da9fe3dc9207b7a8",
+  "risk": "routine",
+  "auto_merge": true
+}

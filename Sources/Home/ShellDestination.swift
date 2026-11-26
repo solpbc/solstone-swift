@@ -147,6 +147,12 @@ struct ShellDestinationView: View {
             ObsidianSourceDetailView()
         case .source(.screenshots):
             ScreenshotsSourceDetailView()
+        case .source(.photos):
+            #if SOLSTONE_PHOTOS_LIBRARY
+            PhotosSourceDetailView()
+            #else
+            EmptyView()
+            #endif
         case .source(.safari):
             SafariSourceDetailView()
         case .status:

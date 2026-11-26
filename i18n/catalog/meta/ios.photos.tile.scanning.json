@@ -1,0 +1,16 @@
+{
+  "description": "Tile sub-line for the Photos source while scanning library details.",
+  "context": "Native app presentation. Home tile sub-line.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "571ab1e218ae31c60614293dee61dcb705faec529cdf76564c2da10f40a5c036",
+  "risk": "routine",
+  "auto_merge": true
+}

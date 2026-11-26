@@ -385,4 +385,183 @@ final class PhotosLibraryTests: XCTestCase {
         XCTAssertEqual(gone.status, "gone")
         XCTAssertNil(gone.jpegBase64)
     }
+
+    func testViewStateCoversAllSetupActivePausedOffAndAttentionStates() {
+        let baseDoc = PhotosLibraryDocument()
+
+        // Unpaired -> ready to set up with unpaired reason and no primary action.
+        let unpaired = PhotosLibraryViewState.resolve(
+            paired: false, access: .notDetermined, capability: .unknown, document: baseDoc,
+            isScanning: false, scanChecked: 0, scanTotal: 0, journal: nil, lastPromptResult: nil
+        )
+        XCTAssertEqual(unpaired.sourceState, .readyToSetUp)
+        XCTAssertEqual(unpaired.primaryAction, .none)
+        XCTAssertNotNil(unpaired.pageReason)
+        XCTAssertEqual(unpaired.tileControl, .none)
+
+        // Paired, not determined -> turn on photos primary action, no already-granted line.
+        let fresh = PhotosLibraryViewState.resolve(
+            paired: true, access: .notDetermined, capability: .listed, document: baseDoc,
+            isScanning: false, scanChecked: 0, scanTotal: 0, journal: nil, lastPromptResult: nil
+        )
+        XCTAssertEqual(fresh.sourceState, .readyToSetUp)
+        XCTAssertEqual(fresh.primaryAction, .turnOn)
+        XCTAssertFalse(fresh.showsAlreadyGrantedLine)
+
+        // Paired, full access already granted -> factual line + scan your library.
+        let alreadyGranted = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .listed, document: baseDoc,
+            isScanning: false, scanChecked: 0, scanTotal: 0, journal: nil, lastPromptResult: nil
+        )
+        XCTAssertEqual(alreadyGranted.sourceState, .readyToSetUp)
+        XCTAssertEqual(alreadyGranted.primaryAction, .scanLibrary)
+        XCTAssertTrue(alreadyGranted.showsAlreadyGrantedLine)
+
+        // Scanning -> setting up, no toggle, progress subline.
+        let scanningDoc = PhotosLibraryDocument(everEnabled: true, enabled: true, paused: false, scanComplete: false)
+        let scanning = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .listed, document: scanningDoc,
+            isScanning: true, scanChecked: 1_200, scanTotal: 4_500, journal: nil, lastPromptResult: nil
+        )
+        XCTAssertEqual(scanning.sourceState, .enrolling)
+        XCTAssertEqual(scanning.tileControl, .none)
+        XCTAssertNotNil(scanning.pageSubline)
+        XCTAssertEqual(scanning.primaryAction, .none)
+
+        // Scan finished, awaiting journal choice -> setting up + chooseInJournal button.
+        let scannedDoc = PhotosLibraryDocument(everEnabled: true, enabled: true, paused: false, scanComplete: true)
+        let chooseJournal = PhotosJournalDashboardSummary(
+            state: "setting_up", substate: "choose", attentionReason: nil,
+            choice: .init(range: nil, canWiden: true),
+            progress: .init(chosenTotal: 0, arrived: 0, inJournal: 0, waitingOnPhone: 0),
+            scan: .init(itemsChecked: 4_500, itemsTotal: 4_500, paused: false)
+        )
+        let choose = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .listed, document: scannedDoc,
+            isScanning: false, scanChecked: 4_500, scanTotal: 4_500, journal: chooseJournal, lastPromptResult: nil
+        )
+        XCTAssertEqual(choose.sourceState, .enrolling)
+        XCTAssertEqual(choose.primaryAction, .chooseInJournal)
+        XCTAssertFalse(choose.showsPauseResume)
+
+        // Bringing in -> active with toggle, pause/resume, and open-journal door.
+        let bringingJournal = PhotosJournalDashboardSummary(
+            state: "on", substate: "bringing_in", attentionReason: nil,
+            choice: .init(range: "1y", canWiden: true),
+            progress: .init(chosenTotal: 240, arrived: 80, inJournal: 80, waitingOnPhone: 160),
+            scan: .init(itemsChecked: 4_500, itemsTotal: 4_500, paused: false)
+        )
+        let bringing = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .listed, document: scannedDoc,
+            isScanning: false, scanChecked: 4_500, scanTotal: 4_500, journal: bringingJournal, lastPromptResult: nil
+        )
+        XCTAssertEqual(bringing.sourceState, .active)
+        XCTAssertEqual(bringing.tileControl, .toggle)
+        XCTAssertTrue(bringing.showsPauseResume)
+        XCTAssertTrue(bringing.showsOpenJournalDoor)
+        XCTAssertFalse(bringing.isPaused)
+
+        // Steady (canWiden vs all) -> active with steady line & open-journal door.
+        let steadyWidenJournal = PhotosJournalDashboardSummary(
+            state: "on", substate: "steady", attentionReason: nil,
+            choice: .init(range: "1y", canWiden: true),
+            progress: .init(chosenTotal: 240, arrived: 240, inJournal: 235, waitingOnPhone: 0),
+            scan: .init(itemsChecked: 4_500, itemsTotal: 4_500, paused: false)
+        )
+        let steadyAllJournal = PhotosJournalDashboardSummary(
+            state: "on", substate: "steady", attentionReason: nil,
+            choice: .init(range: "all", canWiden: false),
+            progress: .init(chosenTotal: 900, arrived: 900, inJournal: 900, waitingOnPhone: 0),
+            scan: .init(itemsChecked: 4_500, itemsTotal: 4_500, paused: false)
+        )
+        let steadyWiden = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .listed, document: scannedDoc,
+            isScanning: false, scanChecked: 4_500, scanTotal: 4_500, journal: steadyWidenJournal, lastPromptResult: nil
+        )
+        let steadyAll = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .listed, document: scannedDoc,
+            isScanning: false, scanChecked: 4_500, scanTotal: 4_500, journal: steadyAllJournal, lastPromptResult: nil
+        )
+        XCTAssertEqual(steadyWiden.sourceState, .active)
+        XCTAssertEqual(steadyAll.sourceState, .active)
+        XCTAssertNotEqual(steadyWiden.pageSubline, steadyAll.pageSubline)
+
+        // Paused -> paused with toggle and resume control.
+        var pausedDoc = scannedDoc
+        pausedDoc.paused = true
+        let paused = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .listed, document: pausedDoc,
+            isScanning: false, scanChecked: 4_500, scanTotal: 4_500, journal: bringingJournal, lastPromptResult: nil
+        )
+        XCTAssertEqual(paused.sourceState, .paused)
+        XCTAssertEqual(paused.tileControl, .toggle)
+        XCTAssertTrue(paused.isPaused)
+        XCTAssertTrue(paused.showsOpenJournalDoor)
+
+        // Turned off in journal -> off with journal door and re-entry scan action.
+        let offJournal = PhotosJournalDashboardSummary(
+            state: "off", substate: "off", attentionReason: nil,
+            choice: .init(range: nil, canWiden: true),
+            progress: .init(chosenTotal: 0, arrived: 0, inJournal: 235, waitingOnPhone: 0),
+            scan: .init(itemsChecked: 0, itemsTotal: 0, paused: false)
+        )
+        let off = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .listed, document: PhotosLibraryDocument(everEnabled: true),
+            isScanning: false, scanChecked: 0, scanTotal: 0, journal: offJournal, lastPromptResult: nil
+        )
+        XCTAssertEqual(off.sourceState, .off)
+        XCTAssertEqual(off.primaryAction, .scanLibrary)
+        XCTAssertTrue(off.showsOpenJournalDoor)
+
+        // Limited / denied after being on -> needs attention + openSettings.
+        let limitedLater = PhotosLibraryViewState.resolve(
+            paired: true, access: .limited, capability: .listed, document: scannedDoc,
+            isScanning: false, scanChecked: 4_500, scanTotal: 4_500, journal: steadyWidenJournal, lastPromptResult: nil
+        )
+        XCTAssertEqual(limitedLater.sourceState, .needsAttention)
+        XCTAssertEqual(limitedLater.primaryAction, .openSettings)
+        XCTAssertEqual(limitedLater.tileControl, .none)
+
+        let revokedLater = PhotosLibraryViewState.resolve(
+            paired: true, access: .denied, capability: .listed, document: scannedDoc,
+            isScanning: false, scanChecked: 4_500, scanTotal: 4_500, journal: steadyWidenJournal, lastPromptResult: nil
+        )
+        XCTAssertEqual(revokedLater.sourceState, .needsAttention)
+        XCTAssertEqual(revokedLater.primaryAction, .openSettings)
+        XCTAssertNotEqual(limitedLater.pageReason, revokedLater.pageReason)
+
+        let restrictedLater = PhotosLibraryViewState.resolve(
+            paired: true, access: .restricted, capability: .listed, document: scannedDoc,
+            isScanning: false, scanChecked: 4_500, scanTotal: 4_500, journal: steadyWidenJournal, lastPromptResult: nil
+        )
+        XCTAssertEqual(restrictedLater.sourceState, .needsAttention)
+        XCTAssertEqual(restrictedLater.primaryAction, .none)
+        XCTAssertEqual(restrictedLater.pageReason, PhotosVocabulary.restricted)
+        XCTAssertEqual(restrictedLater.tileSubtext, PhotosVocabulary.restricted)
+
+        // Journal too old -> waitingForJournalUpdate flag set.
+        let oldJournal = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .notListed, document: scannedDoc,
+            isScanning: false, scanChecked: 0, scanTotal: 0, journal: nil, lastPromptResult: nil
+        )
+        XCTAssertTrue(oldJournal.showsWaitingForJournalUpdate)
+    }
+
+    func testSourceIntakeRecordsLibraryPhotosOncePerAssetID() {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = SourceIntakeStore(containerRoot: dir)
+        let t1 = Date(timeIntervalSince1970: 1_795_000_000)
+        XCTAssertEqual(store.recordPhoto(assetID: "asset-1", now: t1), .recorded)
+        XCTAssertEqual(store.recordPhoto(assetID: "asset-1", now: t1.addingTimeInterval(60)), .unchanged)
+        XCTAssertEqual(store.recordPhoto(assetID: "asset-2", now: t1.addingTimeInterval(120)), .recorded)
+
+        guard case .ready(let snapshot) = store.load() else {
+            return XCTFail("expected readable intake snapshot")
+        }
+        XCTAssertEqual(snapshot.photos.total, 2)
+        XCTAssertNotNil(snapshot.photos.last)
+    }
 }

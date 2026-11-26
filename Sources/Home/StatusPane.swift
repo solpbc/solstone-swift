@@ -19,7 +19,7 @@ nonisolated enum StatusPaneIntakeColumns {
 }
 
 nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
-    case audio, location, screencast, watch, calendar, obsidian, screenshots, safari, `import`
+    case audio, location, screencast, watch, calendar, obsidian, screenshots, photos, safari, `import`
 
     var route: SourceRoute? {
         switch self {
@@ -30,6 +30,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .calendar: .calendar
         case .obsidian: .obsidian
         case .screenshots: .screenshots
+        case .photos: .photos
         case .safari: .safari
         case .import: nil
         }
@@ -44,6 +45,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .calendar: .calendar
         case .obsidian: .obsidian
         case .screenshots: .screenshots
+        case .photos: .photos
         case .safari: .safari
         case .import: nil
         }
@@ -58,6 +60,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .calendar: CalendarVocabulary.label
         case .obsidian: ObsidianVocabulary.TITLE
         case .screenshots: ScreenshotsVocabulary.label
+        case .photos: PhotosVocabulary.label
         case .safari: SafariVocabulary.label
         case .import: SourceVocabulary.importTitle
         }
@@ -89,6 +92,7 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
         calendarCount: Int = 0,
         obsidianCount: Int = 0,
         screenshotsCount: Int = 0,
+        photosCount: Int = 0,
         safariCount: Int = 0,
         importCount: Int = 0
     ) -> Self {
@@ -100,11 +104,12 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
             StatusPaneWaitingRow(source: .calendar, count: calendarCount),
             StatusPaneWaitingRow(source: .obsidian, count: obsidianCount),
             StatusPaneWaitingRow(source: .screenshots, count: screenshotsCount),
+            StatusPaneWaitingRow(source: .photos, count: photosCount),
             StatusPaneWaitingRow(source: .safari, count: safariCount),
             StatusPaneWaitingRow(source: .import, count: importCount),
         ]
         return Self(
-            total: mobileAggregateCount + watchCount + calendarCount + obsidianCount + screenshotsCount + safariCount + importCount,
+            total: mobileAggregateCount + watchCount + calendarCount + obsidianCount + screenshotsCount + photosCount + safariCount + importCount,
             rows: candidates.filter { $0.count > 0 }
         )
     }
@@ -374,6 +379,9 @@ struct StatusPane: View {
     @Environment(CalendarTransferHolder.self) private var calendarTransferHolder: CalendarTransferHolder?
     @Environment(ObsidianTransferHolder.self) private var obsidianTransferHolder: ObsidianTransferHolder?
     @Environment(ScreenshotsSourceEngine.self) private var screenshotsSource: ScreenshotsSourceEngine?
+    #if SOLSTONE_PHOTOS_LIBRARY
+    @Environment(PhotosLibraryEngine.self) private var photosSource: PhotosLibraryEngine?
+    #endif
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(LocationManager.self) private var locationManager
@@ -761,10 +769,19 @@ struct StatusPane: View {
             calendarCount: (self.calendarTransferHolder?.pendingCount ?? 0) + (self.calendarTransferHolder?.failedCount ?? 0),
             obsidianCount: (self.obsidianTransferHolder?.pendingCount ?? 0) + (self.obsidianTransferHolder?.failedCount ?? 0),
             screenshotsCount: self.screenshotsSource?.waitingCount ?? 0,
+            photosCount: self.photosWaitingCount,
             safariCount: self.safariSource?.waitingCount ?? 0,
             // Import failures and ready-to-review items are never lumped into "waiting to sync".
             importCount: self.shareTransferHolder.pendingCount
         )
+    }
+
+    private var photosWaitingCount: Int {
+        #if SOLSTONE_PHOTOS_LIBRARY
+        return self.photosSource?.waitingCount ?? 0
+        #else
+        return 0
+        #endif
     }
 
     @ViewBuilder

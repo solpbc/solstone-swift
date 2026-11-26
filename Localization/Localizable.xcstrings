@@ -7725,6 +7725,38 @@
         }
       }
     },
+    "m696f732e696e74616b652e636f756e742e70686f746f73": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ photo"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ photos"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "m696f732e696e74616b652e636f756e742e73637265656e73686f7473": {
       "localizations": {
         "en-US": {
@@ -10651,6 +10683,296 @@
         }
       }
     },
+    "m696f732e70686f746f732e616374696f6e2e63686f6f7365": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "choose what comes in"
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e616374696f6e2e6f70656e6a6f75726e616c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "open photos in your journal"
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e616374696f6e2e7363616e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scan your library"
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e616374696f6e2e7475726e6f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "turn on photos"
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e666163742e6b656570737768617473696e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "what's already in your journal stays when you pause or turn this off."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e666163742e7374617973696664656c65746564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a photo already in your journal stays there if you delete it from Photos."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e68696e742e7363616e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scans your photo library details so you can open your journal and choose what comes in."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e68696e742e7475726e6f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "asks ios for access to your photos."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e6c6162656c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "photos"
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e706167652e616c72656164796772616e746564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "photo access is already on for the solstone app."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e706167652e686f6e65737479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios lets the solstone app check for new photos only while it runs, so chosen copies can take a while to reach your journal."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e706167652e70726f6772657373": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@ photos checked"
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e706167652e7363616e646f6e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scan finished. no photos come in until you choose how far back in your journal."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e706167652e7363616e6e696e672e70726f6772657373": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scanning %1$@ of %2$@ items… details only, no photos brought in yet. keep the solstone app open until the scan finishes."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e706167652e7363616e6e696e672e7374617274696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scanning your library… details only, no photos brought in yet. keep the solstone app open until the scan finishes."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e706167652e7374656164792e616c6c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up to date. see left-out counts, pause, or turn off in your journal."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e706167652e7374656164792e776964656e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up to date. widen range, see left-out counts, pause, or turn off in your journal."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e706167652e77686174697474616b6573696e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "while this is on, the solstone app reads the details of the visible items in your library so your journal can choose which photos belong to your days. the solstone app then takes in small copies of only those and adds them to your journal. originals stay in your library, hidden photos are never read, and nothing in your library is changed."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e726561736f6e2e6465636c696e6564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the solstone app can't read your photos. allow full access in ios settings to turn this on."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e726561736f6e2e6a6f75726e616c746f6f6f6c64": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting for a journal update."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e726561736f6e2e6c696d697465646c61746572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios is sharing only the photos you picked, so new photos can't come in. allow full access in ios settings."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e726561736f6e2e6c696d6974656470726f6d7074": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios is sharing only the photos you picked, so the solstone app can't scan your library. allow full access in ios settings to turn this on."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e726561736f6e2e6f66666c61746572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "photo access is off in ios settings, so nothing new comes in. what's already in your journal stays."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e726561736f6e2e756e706169726564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connect a journal first to scan your library and choose which photos come in."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e74696c652e63686f6f7365": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scanned. open your journal to choose what comes in."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e74696c652e706175736564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paused. no photos are coming in."
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e74696c652e70726f6772657373": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@ checked"
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e74696c652e7363616e6e696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scanning your library…"
+          }
+        }
+      }
+    },
+    "m696f732e70686f746f732e74696c652e737465616479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "adds chosen photos from your library to your journal while this is on."
+          }
+        }
+      }
+    },
     "m696f732e706c7572616c2e63616c656e646172766f636162756c6172792e6e3632": {
       "localizations": {
         "en-US": {
@@ -12825,6 +13147,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "waiting for a journal update. your screenshots wait on this device."
+          }
+        }
+      }
+    },
+    "m696f732e73637265656e73686f74732e77686174697474616b6573696e2e7769746870686f746f73": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "while screenshots is on, the solstone app takes in the screenshots you take, and your journal keeps each one at the minute you took it. other photos stay where they are unless you turn on photos."
           }
         }
       }

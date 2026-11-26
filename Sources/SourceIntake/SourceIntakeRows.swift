@@ -33,6 +33,9 @@ nonisolated enum SourceIntakeRows {
             sources.append((.watch, SourceVocabulary.watchSourceDisplayName, .source(.watch)))
         }
         sources.append((.screenshots, ScreenshotsVocabulary.label, .source(.screenshots)))
+        #if SOLSTONE_PHOTOS_LIBRARY
+        sources.append((.photos, PhotosVocabulary.label, .source(.photos)))
+        #endif
         sources.append((.obsidian, ObsidianVocabulary.TITLE, .source(.obsidian)))
         sources.append((.imports, SourceVocabulary.importTitle, ShellDestination.import))
         return sources.map { source, name, destination in

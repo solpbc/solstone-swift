@@ -1,0 +1,16 @@
+{
+  "description": "Photos source page status while starting a metadata scan before the total item count is known.",
+  "context": "Native app presentation. Photos source page.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "cedecd156824547bc4dab37dedcaa99c35829b60666eb4180fee6bb4185ddf73",
+  "risk": "routine",
+  "auto_merge": true
+}

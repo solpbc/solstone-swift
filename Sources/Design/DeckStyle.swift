@@ -294,6 +294,7 @@ nonisolated extension SourceKind {
         case .safari: "safari"
         case .obsidian: "doc.text"
         case .screenshots: "camera.viewfinder"
+        case .photos: "photo.on.rectangle.angled"
         }
     }
 }

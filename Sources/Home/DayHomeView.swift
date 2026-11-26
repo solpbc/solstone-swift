@@ -221,6 +221,9 @@ struct DayHomeView: View {
     @Environment(ObsidianTransferHolder.self) private var obsidianTransferHolder: ObsidianTransferHolder?
     @Environment(ObsidianSourceHandle.self) private var obsidianSourceHandle: ObsidianSourceHandle?
     @Environment(ScreenshotsSourceHandle.self) private var screenshotsSourceHandle: ScreenshotsSourceHandle?
+    #if SOLSTONE_PHOTOS_LIBRARY
+    @Environment(PhotosLibrarySourceHandle.self) private var photosSourceHandle: PhotosLibrarySourceHandle?
+    #endif
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(PendingJournalOpenState.self) private var pendingJournalOpen: PendingJournalOpenState?
@@ -471,6 +474,19 @@ private extension DayHomeView {
                     )
                 }
             }
+            #if SOLSTONE_PHOTOS_LIBRARY
+            if let handle = self.photosSourceHandle {
+                let photos = makePhotosSource(handle.source)
+                if self.isOnHome(photos.id) {
+                    HomeSourceTile(
+                        source: photos,
+                        route: .photos,
+                        control: photosTileControl(handle.source),
+                        isOn: self.photosIsOn(handle.source)
+                    )
+                }
+            }
+            #endif
             if let safari = self.safariSource {
                 let source = safariSourceModel(snapshot: safari.snapshot, extensionOn: safari.extensionOn,
                                                isJournalPaired: self.appConfig.isPaired, hasLoaded: safari.hasLoaded)
@@ -519,6 +535,20 @@ private extension DayHomeView {
             }
         )
     }
+
+    #if SOLSTONE_PHOTOS_LIBRARY
+    /// The photos tile's switch only pauses and resumes. Setup, off, and needs-attention have no switch.
+    func photosIsOn(_ source: PhotosLibraryEngine) -> Binding<Bool> {
+        Binding(
+            get: { source.viewState().sourceState == .active },
+            set: { isOn in
+                Task { @MainActor in
+                    await setPhotosTile(source, on: isOn)
+                }
+            }
+        )
+    }
+    #endif
 
     /// The Obsidian tile's switch pauses and resumes; it never asks for access.
     func obsidianIsOn(_ source: any ObsidianEngineControlling) -> Binding<Bool> {

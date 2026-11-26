@@ -14,6 +14,9 @@ struct AddMoreView: View {
     @Environment(ObsidianTransferHolder.self) private var obsidianTransfer: ObsidianTransferHolder?
     @Environment(ObsidianSourceHandle.self) private var obsidianSourceHandle: ObsidianSourceHandle?
     @Environment(ScreenshotsSourceHandle.self) private var screenshotsSourceHandle: ScreenshotsSourceHandle?
+    #if SOLSTONE_PHOTOS_LIBRARY
+    @Environment(PhotosLibrarySourceHandle.self) private var photosSourceHandle: PhotosLibrarySourceHandle?
+    #endif
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @WatchPipelineInputReader private var watchPipelineInputs
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -99,8 +102,17 @@ struct AddMoreView: View {
             safari: self.safariSource.map { safariSourceModel(snapshot: $0.snapshot, extensionOn: $0.extensionOn, isJournalPaired: self.appConfig.isPaired, hasLoaded: $0.hasLoaded) },
             obsidian: self.obsidianSourceHandle.map { makeObsidianSource($0.source, isJournalPaired: self.appConfig.isPaired) },
             screenshots: self.screenshotsSourceHandle.map { makeScreenshotsSource($0.source) },
+            photos: self.photosRowSource,
             hiddenIDs: UserSettings.decodeHiddenHomeSourceIDs(self.hiddenHomeSourceIDsData)
         )
+    }
+
+    private var photosRowSource: Source? {
+        #if SOLSTONE_PHOTOS_LIBRARY
+        return self.photosSourceHandle.map { makePhotosSource($0.source) }
+        #else
+        return nil
+        #endif
     }
 }
 

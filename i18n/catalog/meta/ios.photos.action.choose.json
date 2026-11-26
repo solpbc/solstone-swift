@@ -1,0 +1,16 @@
+{
+  "description": "Primary button label after scan finishes, opening the journal's photos selection page.",
+  "context": "Native app presentation. Primary button label.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "80e02b092050eb06a5856ad5b66a5927e3ebb3925e22235e03673ff737844c76",
+  "risk": "routine",
+  "auto_merge": true
+}

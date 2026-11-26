@@ -1,0 +1,16 @@
+{
+  "description": "Accessibility hint for the turn on photos button.",
+  "context": "Native app presentation. Accessibility hint.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "4c8460182bf75409da49f8668d544db7393cc246a37b924dcde1489c23831f92",
+  "risk": "routine",
+  "auto_merge": true
+}

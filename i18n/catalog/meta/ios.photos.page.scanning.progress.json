@@ -1,0 +1,25 @@
+{
+  "description": "Photos source page status while scanning library metadata with known item total.",
+  "context": "Native app presentation. Photos source page.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "checked",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "57009b7d243abf32dfd737c15f3a250bb96d1acc7988d33d7316368fa9248842",
+  "risk": "routine",
+  "auto_merge": true
+}

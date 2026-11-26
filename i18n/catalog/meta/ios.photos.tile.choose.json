@@ -1,0 +1,16 @@
+{
+  "description": "Tile sub-line for the Photos source after scan completes, waiting for range choice in the journal.",
+  "context": "Native app presentation. Home tile sub-line.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "72c6d0492a998516ebeaa01ba62c2021bbbbdbe88ec3fca8489a9bdda371f98f",
+  "risk": "routine",
+  "auto_merge": true
+}

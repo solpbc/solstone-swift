@@ -39,7 +39,8 @@ struct SolstoneSwiftApp: App {
     @State private var screenshotsSource: ScreenshotsSourceEngine
     @State private var screenshotsSourceHandle: ScreenshotsSourceHandle
 #if SOLSTONE_PHOTOS_LIBRARY
-    private let photosLibraryEngine: PhotosLibraryEngine
+    @State private var photosLibraryEngine: PhotosLibraryEngine
+    @State private var photosLibrarySourceHandle: PhotosLibrarySourceHandle
 #endif
     @State private var safariSource: SafariSourceModel?
     @State private var calendarTransferHolder: CalendarTransferHolder
@@ -727,11 +728,21 @@ struct SolstoneSwiftApp: App {
             media: screenshotsLibrary,
             store: photosLibraryStore,
             transport: photosLibraryClient,
+            intake: sourceIntakeStore,
             deviceNameProvider: { UIDevice.current.name },
             deviceKind: UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
         )
+        let photosLibrarySourceHandle = PhotosLibrarySourceHandle(source: photosLibraryEngine)
         photosLibraryEngine.isPaired = { [weak appConfig] in
             appConfig?.isPaired ?? false
+        }
+        if Self.isUITest,
+           let flagIndex = ProcessInfo.processInfo.arguments.firstIndex(of: "--ui-test-photos-state"),
+           flagIndex + 1 < ProcessInfo.processInfo.arguments.count
+        {
+            let mode = ProcessInfo.processInfo.arguments[flagIndex + 1]
+            photosLibraryEngine.isPaired = { mode != "unpaired" }
+            photosLibraryEngine.applyUITestState(mode)
         }
         screenshotsLibrary.addPhotosLibraryOnChange { [weak photosLibraryEngine] in
             Task { @MainActor in
@@ -1037,7 +1048,8 @@ struct SolstoneSwiftApp: App {
         self._screenshotsSource = State(initialValue: screenshotsSource)
         self._screenshotsSourceHandle = State(initialValue: screenshotsSourceHandle)
 #if SOLSTONE_PHOTOS_LIBRARY
-        self.photosLibraryEngine = photosLibraryEngine
+        self._photosLibraryEngine = State(initialValue: photosLibraryEngine)
+        self._photosLibrarySourceHandle = State(initialValue: photosLibrarySourceHandle)
 #endif
         self._safariSource = State(initialValue: safariSource)
         self._calendarTransferHolder = State(initialValue: calendarTransferHolder)
@@ -1117,6 +1129,10 @@ struct SolstoneSwiftApp: App {
                 .environment(self.obsidianTransferHolder)
                 .environment(self.screenshotsSource)
                 .environment(self.screenshotsSourceHandle)
+#if SOLSTONE_PHOTOS_LIBRARY
+                .environment(self.photosLibraryEngine)
+                .environment(self.photosLibrarySourceHandle)
+#endif
                 .environment(self.safariSource)
                 .environment(self.calendarTransferHolder)
                 .environment(self.mobileSegmentUploader)
@@ -1401,7 +1417,9 @@ struct SolstoneSwiftApp: App {
             self.calendarSource.foreground()
             Task { await self.screenshotsSource.foreground() }
 #if SOLSTONE_PHOTOS_LIBRARY
-            Task { await self.photosLibraryEngine.syncOnce() }
+            if !Self.isUITest {
+                Task { await self.photosLibraryEngine.foreground() }
+            }
 #endif
             Task { await self.obsidianSource.checkNow() }
             Task {
