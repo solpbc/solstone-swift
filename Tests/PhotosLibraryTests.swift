@@ -81,8 +81,10 @@ final class PhotosLibraryTests: XCTestCase {
         var statuses: [PhotosDeviceStatusPayload] = []
         var wantedQueue: [PhotosWantedResponse] = []
         var copyUploads: [PhotosCopyUploadPayload] = []
+        var dashboardSummary: PhotosJournalDashboardSummary?
 
         func checkCapability() async -> Bool? { self.lock.withLock { self.capabilityListed } }
+        func fetchDashboardState() async -> PhotosJournalDashboardSummary? { self.lock.withLock { self.dashboardSummary } }
         func postScanStart(_ payload: PhotosScanStartPayload) async throws { self.lock.withLock { self.scanStarts.append(payload) } }
         func postScanBatch(_ payload: PhotosScanBatchPayload) async throws { self.lock.withLock { self.scanBatches.append(payload) } }
         func postScanFinish(_ payload: PhotosScanFinishPayload) async throws { self.lock.withLock { self.scanFinishes.append(payload) } }
@@ -280,6 +282,85 @@ final class PhotosLibraryTests: XCTestCase {
         let handledWhilePaused = await engine.pollAndDeliverWantedCopies()
         XCTAssertEqual(handledWhilePaused, 0)
         XCTAssertEqual(transport.copyUploads.count, 0)
+    }
+
+    func testForegroundDrainsWantedCopiesOnEmptyDeltaAndReconcilesJournalResume() async {
+        let media = FakeMedia()
+        media.rows = [self.makeRow(id: "asset-1", cloudID: "cloud-1", capturedAt: "2026-11-19T12:00:00Z")]
+        media.changesResult = .delta(addedOrUpdated: [], removedIDs: [], token: Data([3]))
+        media.exportResults["asset-1"] = .jpeg(Data([0xFF, 0xD8, 0xFF, 0xD9]))
+
+        let transport = FakeTransport()
+        let engine = PhotosLibraryEngine(
+            media: media,
+            store: PhotosLibraryStore(fileURL: self.tempStoreURL()),
+            transport: transport,
+            deviceNameProvider: { "Test iPhone" }
+        )
+        engine.isPaired = { true }
+        _ = await engine.enableAndScan()
+        XCTAssertTrue(engine.document.scanComplete)
+
+        // Pause locally, then journal resumes ("on") -> foreground clears local pause and drains wanted even with empty PhotoKit delta.
+        engine.pause()
+        XCTAssertTrue(engine.document.paused)
+        transport.dashboardSummary = PhotosJournalDashboardSummary(
+            state: "on",
+            substate: "bringing_in",
+            attentionReason: nil,
+            choice: .init(range: "1y", canWiden: true),
+            progress: .init(chosenTotal: 1, arrived: 0, inJournal: 0, waitingOnPhone: 1),
+            scan: .init(itemsChecked: 1, itemsTotal: 1, paused: false)
+        )
+        transport.wantedQueue = [
+            PhotosWantedResponse(
+                paused: false,
+                range: "1y",
+                wanted: [
+                    PhotosWantedItem(assetID: "asset-1", cloudID: "cloud-1", maxEdge: 512, capturedAt: "2026-11-19T12:00:00Z", reasonKind: "keep")
+                ],
+                remaining: 0
+            )
+        ]
+
+        await engine.foreground()
+        XCTAssertFalse(engine.document.paused)
+        XCTAssertEqual(transport.scanChanges.count, 0)
+        XCTAssertEqual(transport.copyUploads.count, 1)
+        XCTAssertEqual(transport.copyUploads[0].assetID, "asset-1")
+        XCTAssertEqual(transport.copyUploads[0].status, "ok")
+    }
+
+    func testWantedPollReportsICloudWaitingCountToJournal() async {
+        let media = FakeMedia()
+        media.rows = [self.makeRow(id: "asset-cloud", cloudID: "cloud-9", capturedAt: "2026-11-19T12:00:00Z")]
+        media.exportResults["asset-cloud"] = .icloudWaiting
+
+        let transport = FakeTransport()
+        let engine = PhotosLibraryEngine(
+            media: media,
+            store: PhotosLibraryStore(fileURL: self.tempStoreURL()),
+            transport: transport,
+            deviceNameProvider: { "Test iPhone" }
+        )
+        engine.isPaired = { true }
+        _ = await engine.enableAndScan()
+
+        transport.wantedQueue = [
+            PhotosWantedResponse(
+                paused: false,
+                range: "1y",
+                wanted: [
+                    PhotosWantedItem(assetID: "asset-cloud", cloudID: "cloud-9", maxEdge: 512, capturedAt: "2026-11-19T12:00:00Z", reasonKind: "keep")
+                ],
+                remaining: 0
+            )
+        ]
+
+        let handled = await engine.pollAndDeliverWantedCopies()
+        XCTAssertEqual(handled, 1)
+        XCTAssertEqual(engine.document.icloudWaitingCount, 1)
+        XCTAssertEqual(transport.statuses.last?.icloudWaitingCount, 1)
     }
 
     func testAuthenticatedClientHonorsSendAdmissionGate() async {

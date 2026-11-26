@@ -121,6 +121,12 @@ final class PhotosLibraryEngine {
             self.store.document.scanComplete = false
             self.store.document.changeToken = nil
             self.syncStore()
+        } else if self.store.document.enabled {
+            let journalPaused = (summary.state == "paused")
+            if self.store.document.paused != journalPaused {
+                self.store.document.paused = journalPaused
+                self.syncStore()
+            }
         }
     }
 
@@ -301,30 +307,28 @@ final class PhotosLibraryEngine {
         case .expired:
             _ = await self.runFullMetadataScan()
         case .delta(let addedOrUpdated, let removedIDs, let nextToken):
-            guard !addedOrUpdated.isEmpty || !removedIDs.isEmpty else {
-                if let nextToken {
-                    self.store.document.changeToken = nextToken
-                    self.syncStore()
-                }
-                return
-            }
-            do {
-                let smartAlbums = try? await self.media.fetchSmartAlbumCatalog()
-                try await self.transport.postScanChanges(
-                    PhotosScanChangesPayload(
-                        addedOrUpdated: addedOrUpdated,
-                        removedIDs: removedIDs,
-                        smartAlbums: smartAlbums,
-                        accessState: PhotosLibraryWire.accessString(access),
-                        icloudWaitingCount: self.store.document.icloudWaitingCount
+            if !addedOrUpdated.isEmpty || !removedIDs.isEmpty {
+                do {
+                    let smartAlbums = try? await self.media.fetchSmartAlbumCatalog()
+                    try await self.transport.postScanChanges(
+                        PhotosScanChangesPayload(
+                            addedOrUpdated: addedOrUpdated,
+                            removedIDs: removedIDs,
+                            smartAlbums: smartAlbums,
+                            accessState: PhotosLibraryWire.accessString(access),
+                            icloudWaitingCount: self.store.document.icloudWaitingCount
+                        )
                     )
-                )
+                    self.store.document.changeToken = nextToken
+                    self.store.document.lastScanAt = Date()
+                    self.syncStore()
+                } catch {
+                    self.lastError = String(describing: error)
+                    photosEngineLog.error("photos library delta sync failed")
+                }
+            } else if let nextToken {
                 self.store.document.changeToken = nextToken
-                self.store.document.lastScanAt = Date()
                 self.syncStore()
-            } catch {
-                self.lastError = String(describing: error)
-                photosEngineLog.error("photos library delta sync failed")
             }
         }
         await self.pollAndDeliverWantedCopies()
@@ -349,6 +353,7 @@ final class PhotosLibraryEngine {
         self.isSyncingCopies = true
         defer { self.isSyncingCopies = false }
 
+        let previousICloudWaiting = self.store.document.icloudWaitingCount
         var handled = 0
         var icloudWaiting = 0
         for _ in 0..<max(1, maxBatches) {
@@ -429,6 +434,9 @@ final class PhotosLibraryEngine {
             if response.remaining == 0 {
                 break
             }
+        }
+        if icloudWaiting != previousICloudWaiting {
+            await self.reportDeviceStatus(access: access, scanPaused: false)
         }
         if handled > 0 {
             await self.refreshJournalState()
