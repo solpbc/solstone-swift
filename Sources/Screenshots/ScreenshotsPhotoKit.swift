@@ -8,10 +8,13 @@ import Photos
 /// re-encoded, and no date is written into the file. Nonisolated: PhotoKit calls the change
 /// observer and the resource handlers on its own queues.
 nonisolated final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPhotoLibraryChangeObserver, @unchecked Sendable {
-    private let library: PHPhotoLibrary
+    let library: PHPhotoLibrary
     private let lock = NSLock()
     private var onChange: (@Sendable () -> Void)?
-    private var observing = false
+    private var extraOnChange: [@Sendable () -> Void] = []
+    private var screenshotsObserving = false
+    private var photosLibraryObserving = false
+    private var registered = false
 
     static let batchFetchChunkSize = 500
 
@@ -49,6 +52,12 @@ nonisolated final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPho
     func setOnChange(_ onChange: @escaping @Sendable () -> Void) {
         self.lock.lock()
         self.onChange = onChange
+        self.lock.unlock()
+    }
+
+    func addPhotosLibraryOnChange(_ listener: @escaping @Sendable () -> Void) {
+        self.lock.lock()
+        self.extraOnChange.append(listener)
         self.lock.unlock()
     }
 
@@ -167,13 +176,32 @@ nonisolated final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPho
 
     func setObserving(_ on: Bool) {
         self.lock.lock()
-        let changed = on != self.observing
+        self.screenshotsObserving = on
+        let shouldRegister = self.screenshotsObserving || self.photosLibraryObserving
+        let changed = shouldRegister != self.registered
         if changed {
-            self.observing = on
+            self.registered = shouldRegister
         }
         self.lock.unlock()
         guard changed else { return }
-        if on {
+        if shouldRegister {
+            self.library.register(self)
+        } else {
+            self.library.unregisterChangeObserver(self)
+        }
+    }
+
+    func setPhotosLibraryObserving(_ on: Bool) {
+        self.lock.lock()
+        self.photosLibraryObserving = on
+        let shouldRegister = self.screenshotsObserving || self.photosLibraryObserving
+        let changed = shouldRegister != self.registered
+        if changed {
+            self.registered = shouldRegister
+        }
+        self.lock.unlock()
+        guard changed else { return }
+        if shouldRegister {
             self.library.register(self)
         } else {
             self.library.unregisterChangeObserver(self)
@@ -182,9 +210,13 @@ nonisolated final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPho
 
     func photoLibraryDidChange(_ changeInstance: PHChange) {
         self.lock.lock()
-        let onChange = self.onChange
+        let primary = self.onChange
+        let extras = self.extraOnChange
         self.lock.unlock()
-        onChange?()
+        primary?()
+        for listener in extras {
+            listener()
+        }
     }
 
     static func fetchOptions(onOrAfter start: Date?) -> PHFetchOptions {

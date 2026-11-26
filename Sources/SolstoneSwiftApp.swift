@@ -38,6 +38,9 @@ struct SolstoneSwiftApp: App {
     @State private var obsidianTransferHolder: ObsidianTransferHolder
     @State private var screenshotsSource: ScreenshotsSourceEngine
     @State private var screenshotsSourceHandle: ScreenshotsSourceHandle
+#if SOLSTONE_PHOTOS_LIBRARY
+    private let photosLibraryEngine: PhotosLibraryEngine
+#endif
     @State private var safariSource: SafariSourceModel?
     @State private var calendarTransferHolder: CalendarTransferHolder
     @State private var calendarBackgroundRefresh: CalendarBackgroundRefresh
@@ -706,6 +709,39 @@ struct SolstoneSwiftApp: App {
             guard let active = tunnel?.activeConnection else { return false }
             return active.port == port && active.epoch == epoch
         }
+#if SOLSTONE_PHOTOS_LIBRARY
+        let photosLibraryStore = PhotosLibraryStore(fileURL: PhotosLibraryStore.defaultFileURL())
+        let photosLibraryClient = AuthenticatedPhotosLibraryClient(
+            homeClient: homeClient,
+            localPortProvider: { [weak tunnel] in
+                await MainActor.run { tunnel?.activeConnection?.port }
+            },
+            admitSend: {
+                await MainActor.run {
+                    SPLRuntime.pairingStore.hasActiveOwner
+                        && SPLRuntime.confirmationStore.allowsSend(pairing: SPLRuntime.pairingStore.snapshot().pairing)
+                }
+            }
+        )
+        let photosLibraryEngine = PhotosLibraryEngine(
+            media: screenshotsLibrary,
+            store: photosLibraryStore,
+            transport: photosLibraryClient,
+            deviceNameProvider: { UIDevice.current.name },
+            deviceKind: UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        )
+        photosLibraryEngine.isPaired = { [weak appConfig] in
+            appConfig?.isPaired ?? false
+        }
+        screenshotsLibrary.addPhotosLibraryOnChange { [weak photosLibraryEngine] in
+            Task { @MainActor in
+                await photosLibraryEngine?.libraryChanged()
+            }
+        }
+        appConfig.store.registerOnNewPairing { [weak photosLibraryEngine] in
+            photosLibraryEngine?.restartFirstSetup()
+        }
+#endif
         let connectionStallMonitor = ConnectionStallMonitor(
             store: ConnectionStallStoreFactory.make(),
             clock: SystemConnectionStallClock(),
@@ -1000,6 +1036,9 @@ struct SolstoneSwiftApp: App {
         self._obsidianTransferHolder = State(initialValue: obsidianTransferHolder)
         self._screenshotsSource = State(initialValue: screenshotsSource)
         self._screenshotsSourceHandle = State(initialValue: screenshotsSourceHandle)
+#if SOLSTONE_PHOTOS_LIBRARY
+        self.photosLibraryEngine = photosLibraryEngine
+#endif
         self._safariSource = State(initialValue: safariSource)
         self._calendarTransferHolder = State(initialValue: calendarTransferHolder)
         self._calendarBackgroundRefresh = State(initialValue: calendarBackgroundRefresh)
@@ -1361,6 +1400,9 @@ struct SolstoneSwiftApp: App {
             }
             self.calendarSource.foreground()
             Task { await self.screenshotsSource.foreground() }
+#if SOLSTONE_PHOTOS_LIBRARY
+            Task { await self.photosLibraryEngine.syncOnce() }
+#endif
             Task { await self.obsidianSource.checkNow() }
             Task {
                 await self.shareTransferHolder.refreshActiveItems()

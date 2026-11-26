@@ -74,6 +74,8 @@ CI_MAX_ATTEMPTS    ?= 2
 # build takes project.yml's setting, which is on.
 AGE_SIGNAL ?=
 AGE_SIGNAL_SETTING = $(if $(strip $(AGE_SIGNAL)),SOLSTONE_AGE_SIGNAL=$(AGE_SIGNAL))
+PHOTOS_LIBRARY ?=
+PHOTOS_LIBRARY_SETTING = $(if $(strip $(PHOTOS_LIBRARY)),SOLSTONE_PHOTOS_LIBRARY=$(PHOTOS_LIBRARY))
 
 # --- Project setup ---
 
@@ -222,6 +224,7 @@ sim: deps
 		-derivedDataPath $(DERIVED) \
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		$(AGE_SIGNAL_SETTING) \
+		$(PHOTOS_LIBRARY_SETTING) \
 		build
 
 # The -json targets report xcodebuild's exit status. xcsift exits 0 even when the
@@ -233,6 +236,7 @@ sim-json: deps
 		-derivedDataPath $(DERIVED) \
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		$(AGE_SIGNAL_SETTING) \
+		$(PHOTOS_LIBRARY_SETTING) \
 		build 2>&1 | xcsift
 
 sim-ipad: deps
@@ -724,6 +728,7 @@ test-one: deps
 		-destination '$(SIM_DESTINATION)' \
 		-derivedDataPath $(DERIVED) \
 		$(AGE_SIGNAL_SETTING) \
+		$(PHOTOS_LIBRARY_SETTING) \
 		-only-testing:'$(TEST_TARGET)/$(TEST)'
 
 test-build: deps
