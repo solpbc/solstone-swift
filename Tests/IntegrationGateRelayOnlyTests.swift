@@ -309,7 +309,8 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         IntegrationGateRelayOnlyURLProtocol.reset()
         defer { IntegrationGateRelayOnlyURLProtocol.reset() }
         let configuration = Self.emptyLocalEndpointsConfiguration()
-        let cache = EndpointCache(fileURL: Self.tempFileURL(), session: URLSession(configuration: configuration))
+        let session = URLSession(configuration: configuration)
+        let cache = EndpointCache(fileURL: Self.tempFileURL(), session: session)
         await cache.bootstrap(from: Self.pairing(localEndpoints: [
             LocalEndpoint(host: "10.0.0.20", port: 7657, scope: "local"),
             LocalEndpoint(host: "10.0.0.21", port: 7657, scope: "local"),
@@ -324,7 +325,8 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
             endpointCache: cache,
             loadPairing: { pairing },
             savePairing: { _ in },
-            deletePairing: {}
+            deletePairing: {},
+            probeSession: session
         )
 
         manager.installIntegrationGateRelayOnlyCandidatePolicy()
