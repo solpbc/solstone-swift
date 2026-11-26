@@ -353,11 +353,23 @@ nonisolated final class ResumableImportUploadTests: XCTestCase {
         await engine2.pause()
     }
 
+    func testSlowOrPartialReceiptsHoldTheReducedChunkSize() {
+        let reduced = 512 * 1024
+        var growth = ImportChunkGrowth(advertised: 4 * 1024 * 1024)
+        for _ in 0..<6 {
+            XCTAssertEqual(growth.afterReceipt(current: reduced, sent: reduced, confirmed: reduced, elapsed: .seconds(4)), reduced)
+        }
+        XCTAssertEqual(growth.afterReceipt(current: reduced, sent: reduced, confirmed: reduced, elapsed: .milliseconds(100)), reduced)
+        XCTAssertEqual(growth.afterReceipt(current: reduced, sent: reduced, confirmed: reduced / 2, elapsed: .milliseconds(100)), reduced)
+        XCTAssertEqual(growth.afterReceipt(current: reduced, sent: reduced, confirmed: reduced, elapsed: .milliseconds(100)), reduced)
+        XCTAssertEqual(growth.afterReceipt(current: reduced, sent: reduced, confirmed: reduced, elapsed: .milliseconds(100)), 2 * reduced)
+    }
+
     @MainActor
-    func testInterruptedChunkReconcilesAcrossRestartAndKeepsItsWorkingSize() async throws {
+    func testInterruptedChunkReconcilesAcrossRestartAndRegrowsAfterFastReceipts() async throws {
         let unit = 256 * 1024
         let id = Self.uuid(48)
-        let payload = Self.deterministicData(count: 8 * unit, seed: 48)
+        let payload = Self.deterministicData(count: 16 * unit, seed: 48)
         let journal = OSAllocatedUnfairLock(initialState: MockResumableJournalState(
             advertiseCapability: true, thresholdBytes: 64 * 1024, chunkBytes: 4 * unit
         ))
@@ -385,7 +397,7 @@ nonisolated final class ResumableImportUploadTests: XCTestCase {
                 routeAvailable.withLock { $0 = false }
                 throw URLError(.networkConnectionLost) // A late result from the retired route, after journal storage.
             }
-            if body.count > unit { throw URLError(number == 2 ? .networkConnectionLost : .timedOut) }
+            if number == 2 || number == 3 { throw URLError(number == 2 ? .networkConnectionLost : .timedOut) }
             return Self.handleMockJournal(request: request, body: body, state: journal)
         }
         let spool = self.makeSpool()
@@ -414,9 +426,9 @@ nonisolated final class ResumableImportUploadTests: XCTestCase {
         try await transferTestWaitFor("delivered through the new relay connection") {
             await next.snapshot().counters.deliveredCount == 1
         }
-        XCTAssertEqual(attempts.withLock { $0 }, [4 * unit, 4 * unit, 2 * unit, unit, unit, unit, unit])
+        XCTAssertEqual(attempts.withLock { $0 }, [4, 4, 2, 1, 1, 2, 2, 4, 2].map { $0 * unit })
         let receipt = journal.withLock { $0 }
-        XCTAssertEqual(receipt.putOffsets, [0, 4, 5, 6, 7].map { Int64($0 * unit) })
+        XCTAssertEqual(receipt.putOffsets, [0, 4, 5, 6, 8, 10, 14].map { Int64($0 * unit) })
         XCTAssertEqual(receipt.createCount, 1)
         XCTAssertEqual(receipt.assembledSHA256[id.uuidString.lowercased()], ResumableFileReader.sha256Hex(of: payload))
         await next.pause()

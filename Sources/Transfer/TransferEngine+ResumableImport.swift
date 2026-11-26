@@ -348,6 +348,7 @@ extension TransferEngine {
 
         // Step B: Create session or resync existing session.
         var uploadID: String
+        var growth = ImportChunkGrowth(advertised: config.chunkBytes)
         if let existingID = resumable.uploadID, ResumableUploadIDValidator.isValid(existingID) {
             uploadID = existingID
             if resumable.remoteOffset < totalBytes {
@@ -375,6 +376,7 @@ extension TransferEngine {
                     endpoint: endpoint
                 ) {
                 case .synced(let nextOffset, let chunkBytes, let expiresAt):
+                    growth.advertised = chunkBytes
                     var workingSize = min(resumable.chunkBytes ?? chunkBytes, chunkBytes)
                     if nextOffset == resumable.remoteOffset, let attempted = resumable.interruptedChunkBytes {
                         let smaller = max(ResumableImportDefaults.minChunkBytes, min(512 * 1024, attempted / 2))
@@ -527,7 +529,8 @@ extension TransferEngine {
                 resumable.interruptedChunkBytes = nil
                 resumable.uploadID = open.uploadID
                 resumable.remoteOffset = open.nextOffset
-                resumable.chunkBytes = ResumableImportDefaults.clampedChunkBytes(open.chunkBytes ?? config.chunkBytes)
+                growth.advertised = ResumableImportDefaults.clampedChunkBytes(open.chunkBytes ?? config.chunkBytes)
+                resumable.chunkBytes = growth.advertised
                 resumable.uploadInstanceID = currentInstanceID
                 resumable.expiresAt = open.expiresAt
                 resumable.phase = open.nextOffset >= totalBytes ? .checking : .sending
@@ -595,6 +598,7 @@ extension TransferEngine {
                 }
 
                 let chunkSHA256 = ResumableFileReader.sha256Hex(of: chunkData)
+                let started = ContinuousClock.now
                 let putResult = await self.transport.sendRawRequest(
                     method: "PUT",
                     path: "\(ResumableImportDefaults.uploadsPath)/\(uploadID)",
@@ -607,6 +611,7 @@ extension TransferEngine {
                     endpoint: endpoint
                 )
 
+                let elapsed = started.duration(to: .now)
                 if putResult.issue?.mayHaveInterruptedUpload == true,
                    self.resumableUploadTasks[itemID]?.token == runToken,
                    var current = self.queuedItems[itemID]?.manifest.saveThenStart?.resumable,
@@ -646,6 +651,9 @@ extension TransferEngine {
                         return
                     }
                     let confirmedDelta = Int(max(0, ack.nextOffset - resumable.remoteOffset))
+                    resumable.chunkBytes = growth.afterReceipt(
+                        current: chunkSize, sent: chunkData.count, confirmed: confirmedDelta, elapsed: elapsed
+                    )
                     resumable.remoteOffset = ack.nextOffset
                     resumable.expiresAt = ack.expiresAt ?? resumable.expiresAt
                     resumable.phase = ack.nextOffset >= totalBytes ? .checking : .sending
@@ -659,6 +667,7 @@ extension TransferEngine {
                     continue
                 }
 
+                growth.fastReceipts = 0
                 let errBody = ResumableUploadErrorBody.parse(from: putResult.data)
                 if statusCode == 409 {
                     if errBody?.reasonCode == TransferReasonCodes.journalBusy {
@@ -705,6 +714,7 @@ extension TransferEngine {
                             endpoint: endpoint
                         ) {
                         case .synced(let nextOffset, let syncedChunkBytes, let expiresAt):
+                            growth.advertised = syncedChunkBytes
                             resumable.chunkBytes = min(chunkSize, syncedChunkBytes)
                             if nextOffset == resumable.remoteOffset {
                                 consecutiveNonAdvancingOffsets += 1

@@ -26,6 +26,24 @@ nonisolated enum ResumableImportDefaults {
     }
 }
 
+nonisolated struct ImportChunkGrowth {
+    var advertised: Int
+    var fastReceipts = 0
+
+    mutating func afterReceipt(current: Int, sent: Int, confirmed: Int, elapsed: Duration) -> Int {
+        // Two full receipts must each project the advertised size inside eight seconds.
+        guard current > 0, current < advertised, sent == current, confirmed == sent,
+              elapsed <= .milliseconds(8_000 * current / advertised) else {
+            fastReceipts = 0
+            return current
+        }
+        fastReceipts += 1
+        guard fastReceipts >= 2 else { return current }
+        fastReceipts = 0
+        return min(advertised, 2 * current)
+    }
+}
+
 nonisolated struct ResumableImportConfig: Equatable, Sendable {
     var thresholdBytes: Int64
     var chunkBytes: Int
