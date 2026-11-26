@@ -368,14 +368,21 @@ extension TransferEngine {
 
                 switch await self.handleStatusResyncResponse(
                     syncResult,
+                    uploadID: existingID,
                     itemID: itemID,
                     totalBytes: totalBytes,
                     defaultChunkBytes: config.chunkBytes,
                     endpoint: endpoint
                 ) {
                 case .synced(let nextOffset, let chunkBytes, let expiresAt):
+                    var workingSize = min(resumable.chunkBytes ?? chunkBytes, chunkBytes)
+                    if nextOffset == resumable.remoteOffset, let attempted = resumable.interruptedChunkBytes {
+                        let smaller = max(ResumableImportDefaults.minChunkBytes, min(512 * 1024, attempted / 2))
+                        workingSize = min(workingSize, smaller)
+                    }
+                    resumable.interruptedChunkBytes = nil
                     resumable.remoteOffset = nextOffset
-                    resumable.chunkBytes = chunkBytes
+                    resumable.chunkBytes = workingSize
                     resumable.expiresAt = expiresAt ?? resumable.expiresAt
                     resumable.phase = nextOffset >= totalBytes ? .checking : .sending
                     self.persistResumableState(resumable, for: itemID, flushImmediately: true)
@@ -517,6 +524,7 @@ extension TransferEngine {
                     return
                 }
                 uploadID = open.uploadID
+                resumable.interruptedChunkBytes = nil
                 resumable.uploadID = open.uploadID
                 resumable.remoteOffset = open.nextOffset
                 resumable.chunkBytes = ResumableImportDefaults.clampedChunkBytes(open.chunkBytes ?? config.chunkBytes)
@@ -599,6 +607,14 @@ extension TransferEngine {
                     endpoint: endpoint
                 )
 
+                if putResult.issue?.mayHaveInterruptedUpload == true,
+                   self.resumableUploadTasks[itemID]?.token == runToken,
+                   var current = self.queuedItems[itemID]?.manifest.saveThenStart?.resumable,
+                   current.uploadID == uploadID, current.uploadInstanceID == resumable.uploadInstanceID,
+                   current.remoteOffset == resumable.remoteOffset {
+                    current.interruptedChunkBytes = chunkData.count
+                    self.persistResumableState(current, for: itemID, flushImmediately: true)
+                }
                 guard await self.shouldContinueResumable(itemID: itemID, endpoint: endpoint) else {
                     self.handleResumableInterrupted(itemID: itemID, sourceKey: sourceKey)
                     return
@@ -623,8 +639,8 @@ extension TransferEngine {
 
                 if 200..<300 ~= statusCode {
                     guard let ack = ResumableUploadWireDecoder.decodeChunkResponse(from: putResult.data),
-                          ack.totalBytes == totalBytes,
-                          ack.nextOffset >= resumable.remoteOffset
+                          ack.uploadID == uploadID, ack.totalBytes == totalBytes,
+                          ack.nextOffset > resumable.remoteOffset
                     else {
                         self.pauseResumableItemForRetry(itemID: itemID, reason: .transport("invalid chunk ack"))
                         return
@@ -682,12 +698,14 @@ extension TransferEngine {
                         }
                         switch await self.handleStatusResyncResponse(
                             syncResult,
+                            uploadID: uploadID,
                             itemID: itemID,
                             totalBytes: totalBytes,
                             defaultChunkBytes: chunkSize,
                             endpoint: endpoint
                         ) {
                         case .synced(let nextOffset, let syncedChunkBytes, let expiresAt):
+                            resumable.chunkBytes = min(chunkSize, syncedChunkBytes)
                             if nextOffset == resumable.remoteOffset {
                                 consecutiveNonAdvancingOffsets += 1
                                 if consecutiveNonAdvancingOffsets >= 5 {
@@ -697,11 +715,10 @@ extension TransferEngine {
                             } else {
                                 consecutiveNonAdvancingOffsets = 0
                                 resumable.remoteOffset = nextOffset
-                                resumable.chunkBytes = syncedChunkBytes
                                 resumable.expiresAt = expiresAt ?? resumable.expiresAt
                                 resumable.phase = nextOffset >= totalBytes ? .checking : .sending
-                                self.persistResumableState(resumable, for: itemID, flushImmediately: false)
                             }
+                            self.persistResumableState(resumable, for: itemID, flushImmediately: false)
                             continue
                         case .handledAndStop:
                             return
@@ -936,6 +953,7 @@ extension TransferEngine {
 
     private func handleStatusResyncResponse(
         _ result: TransferHTTPResult,
+        uploadID: String,
         itemID: UUID,
         totalBytes: Int64,
         defaultChunkBytes: Int,
@@ -959,7 +977,7 @@ extension TransferEngine {
         }
         if statusCode == 200 {
             guard let status = ResumableUploadWireDecoder.decodeStatusResponse(from: result.data),
-                  status.totalBytes == totalBytes
+                  status.uploadID == uploadID, status.totalBytes == totalBytes
             else {
                 self.pauseResumableItemForRetry(itemID: itemID, reason: .transport("invalid status response"))
                 return .handledAndStop
@@ -1397,7 +1415,7 @@ extension TransferEngine {
             return .timeout
         case .cancelled:
             return .cancelled
-        case .transport(let detail):
+        case .connectionLost(let detail), .transport(let detail):
             return .transport(detail)
         }
     }

@@ -352,6 +352,7 @@ nonisolated struct TransferResumableUploadState: Codable, Equatable, Sendable {
     var remoteOffset: Int64
     var totalBytes: Int64
     var chunkBytes: Int?
+    var interruptedChunkBytes: Int?
     var uploadInstanceID: String?
     var wholeFileSHA256: String?
     var phase: TransferResumablePhase

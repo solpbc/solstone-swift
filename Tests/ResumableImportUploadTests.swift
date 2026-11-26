@@ -353,6 +353,75 @@ nonisolated final class ResumableImportUploadTests: XCTestCase {
         await engine2.pause()
     }
 
+    @MainActor
+    func testInterruptedChunkReconcilesAcrossRestartAndKeepsItsWorkingSize() async throws {
+        let unit = 256 * 1024
+        let id = Self.uuid(48)
+        let payload = Self.deterministicData(count: 8 * unit, seed: 48)
+        let journal = OSAllocatedUnfairLock(initialState: MockResumableJournalState(
+            advertiseCapability: true, thresholdBytes: 64 * 1024, chunkBytes: 4 * unit
+        ))
+        let attempts = OSAllocatedUnfairLock(initialState: [Int]())
+        let loseStatus = OSAllocatedUnfairLock(initialState: true)
+        let routeAvailable = OSAllocatedUnfairLock(initialState: true)
+        TransferURLProtocol.handler = { request, body in
+            if request.httpMethod == "GET", request.url?.path.contains("/uploads/") == true,
+               loseStatus.withLock({ value in
+                   let first = value
+                   value = false
+                   return first
+               }) {
+                throw URLError(.timedOut)
+            }
+            guard request.httpMethod == "PUT" else {
+                return Self.handleMockJournal(request: request, body: body, state: journal)
+            }
+            let number = attempts.withLock { calls in
+                calls.append(body.count)
+                return calls.count
+            }
+            if number == 1 {
+                _ = Self.handleMockJournal(request: request, body: body, state: journal)
+                routeAvailable.withLock { $0 = false }
+                throw URLError(.networkConnectionLost) // A late result from the retired route, after journal storage.
+            }
+            if body.count > unit { throw URLError(number == 2 ? .networkConnectionLost : .timedOut) }
+            return Self.handleMockJournal(request: request, body: body, state: journal)
+        }
+        let spool = self.makeSpool()
+        let resolver = MutableEndpointResolver(endpoint: Self.endpoint(port: 19001, instanceID: "journal-A")) {
+            routeAvailable.withLock { $0 }
+        }
+        let first = self.makeEngine(spool: spool, endpointResolver: resolver, retrySteps: [60])
+        try await first.start()
+        await first.noteNewConnectionEstablished(pairingIdentity: "pairing-A")
+        _ = try await first.enqueue(
+            manifest: self.shareFileManifest(itemID: id, filename: "relay.zip", byteCount: payload.count),
+            payloads: ["file": payload]
+        )
+        try await transferTestWaitFor("waiting for the lost acknowledgement") {
+            await first.itemSnapshot(itemID: id)?.manifest.saveThenStart?.resumable?.interruptedChunkBytes == 4 * unit
+        }
+        await first.pause()
+        let stored = try spool.initialize(now: Self.baseDate).queued.first?.manifest.saveThenStart?.resumable
+        XCTAssertEqual(stored?.remoteOffset, 0)
+        XCTAssertEqual(stored?.interruptedChunkBytes, 4 * unit)
+        await resolver.switchTo(Self.endpoint(port: 19002, instanceID: "journal-A"))
+        routeAvailable.withLock { $0 = true }
+        let next = self.makeEngine(spool: spool, endpointResolver: resolver, retrySteps: [0.01])
+        try await next.start()
+        await next.noteNewConnectionEstablished(pairingIdentity: "pairing-A")
+        try await transferTestWaitFor("delivered through the new relay connection") {
+            await next.snapshot().counters.deliveredCount == 1
+        }
+        XCTAssertEqual(attempts.withLock { $0 }, [4 * unit, 4 * unit, 2 * unit, unit, unit, unit, unit])
+        let receipt = journal.withLock { $0 }
+        XCTAssertEqual(receipt.putOffsets, [0, 4, 5, 6, 7].map { Int64($0 * unit) })
+        XCTAssertEqual(receipt.createCount, 1)
+        XCTAssertEqual(receipt.assembledSHA256[id.uuidString.lowercased()], ResumableFileReader.sha256Hex(of: payload))
+        await next.pause()
+    }
+
     // MARK: - Pairing-switch rule
 
     @MainActor
@@ -1233,7 +1302,10 @@ private actor StaticResumableProbe: ResumableImportCapabilityProbing {
 private actor MutableEndpointResolver: TransferEndpointResolver {
     private var currentEndpoint: TransferResolvedEndpoint
 
-    init(endpoint: TransferResolvedEndpoint) {
+    private let available: @Sendable () -> Bool
+
+    init(endpoint: TransferResolvedEndpoint, available: @escaping @Sendable () -> Bool = { true }) {
+        self.available = available
         self.currentEndpoint = endpoint
     }
 
@@ -1242,11 +1314,11 @@ private actor MutableEndpointResolver: TransferEndpointResolver {
     }
 
     func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {
-        .available(self.currentEndpoint)
+        available() ? .available(self.currentEndpoint) : .unavailable("disconnected")
     }
 
     func isCurrent(_ endpoint: TransferResolvedEndpoint) async -> Bool {
-        endpoint == self.currentEndpoint
+        available() && endpoint == self.currentEndpoint
     }
 }
 

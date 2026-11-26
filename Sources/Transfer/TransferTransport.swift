@@ -251,6 +251,8 @@ nonisolated final class TransferTransport: @unchecked Sendable {
         if let error {
             if let urlError = error as? URLError {
                 switch urlError.code {
+                case .networkConnectionLost:
+                    return TransferHTTPResult(statusCode: nil, issue: .connectionLost(urlError.localizedDescription))
                 case .timedOut:
                     return TransferHTTPResult(statusCode: nil, issue: .timeout)
                 case .cancelled:

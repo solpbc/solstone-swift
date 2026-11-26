@@ -222,7 +222,7 @@ actor JournalResumableImportCapabilityProbe: ResumableImportCapabilityProbing {
                 return .unavailable(.timeout)
             case .cancelled:
                 return .unavailable(.cancelled)
-            case .transport(let detail):
+            case .connectionLost(let detail), .transport(let detail):
                 return .unavailable(.transport(detail))
             }
         }

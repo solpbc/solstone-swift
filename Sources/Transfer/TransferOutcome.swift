@@ -46,7 +46,15 @@ nonisolated struct TransferHTTPResult: Equatable, Sendable {
 nonisolated enum TransferTransportIssue: Equatable, Sendable {
     case timeout
     case cancelled
+    case connectionLost(String)
     case transport(String)
+
+    var mayHaveInterruptedUpload: Bool {
+        switch self {
+        case .timeout, .connectionLost: true
+        case .cancelled, .transport: false
+        }
+    }
 }
 
 nonisolated enum TransferOutcome: Equatable, Sendable {
@@ -323,7 +331,7 @@ nonisolated enum TransferHTTPClassifier {
             case .cancelled:
                 // The old path had an uncounted benign re-drive for SAVEs cancelled by a tunnel reconnect (ImportQueue.swift:993-1014). It is intentionally not carried over: cancels are now uniform `.transientRetry(.cancelled)` with persisted backoff, and a SAVE that reached the server before the cancel re-uploads to 2xx via `client_item_id` idempotency.
                 return .transientRetry(.cancelled)
-            case .transport(let detail):
+            case .connectionLost(let detail), .transport(let detail):
                 return .transientRetry(.transport(detail))
             }
         }
