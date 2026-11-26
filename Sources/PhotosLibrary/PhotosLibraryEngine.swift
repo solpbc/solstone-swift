@@ -107,25 +107,49 @@ final class PhotosLibraryEngine {
         return self.capability
     }
 
+    private func handleTransportError(_ error: any Error, logMessage: String) {
+        if let transportError = error as? PhotosLibraryTransportError,
+           transportError == .httpStatus(404)
+        {
+            self.capability = .notListed
+            self.journalSummary = nil
+            self.lastError = nil
+            return
+        }
+        self.lastError = String(describing: error)
+        photosEngineLog.error("\(logMessage, privacy: .public)")
+    }
+
     func refreshJournalState() async {
         guard self.isPaired() else {
             self.journalSummary = nil
             return
         }
-        guard let summary = await self.transport.fetchDashboardState() else { return }
-        self.journalSummary = summary
-        if summary.state == "off" && self.store.document.enabled {
-            self.media.setPhotosLibraryObserving(false)
-            self.store.document.enabled = false
-            self.store.document.paused = false
-            self.store.document.scanComplete = false
-            self.store.document.changeToken = nil
-            self.syncStore()
-        } else if self.store.document.enabled {
-            let journalPaused = (summary.state == "paused")
-            if self.store.document.paused != journalPaused {
-                self.store.document.paused = journalPaused
+        switch await self.transport.fetchDashboardStateResult() {
+        case .failed:
+            return
+        case .notFound:
+            self.journalSummary = nil
+            let cap = await self.refreshCapability()
+            if cap != .listed {
+                self.capability = .notListed
+            }
+            return
+        case .ok(let summary):
+            self.journalSummary = summary
+            if summary.state == "off" && self.store.document.enabled {
+                self.media.setPhotosLibraryObserving(false)
+                self.store.document.enabled = false
+                self.store.document.paused = false
+                self.store.document.scanComplete = false
+                self.store.document.changeToken = nil
                 self.syncStore()
+            } else if self.store.document.enabled {
+                let journalPaused = (summary.state == "paused")
+                if self.store.document.paused != journalPaused {
+                    self.store.document.paused = journalPaused
+                    self.syncStore()
+                }
             }
         }
     }
@@ -139,19 +163,37 @@ final class PhotosLibraryEngine {
             return
         }
         let cap = await self.refreshCapability()
-        if cap == .listed {
-            await self.refreshJournalState()
+        guard cap == .listed else {
+            if cap == .notListed {
+                self.journalSummary = nil
+            }
+            return
         }
+        // Announce this photos-capable iPhone/iPad before reading dashboard state so the
+        // journal makes the Photos row visible without enabling the source or creating a
+        // holding area before the owner turns Photos on.
+        await self.reportDeviceStatus(access: self.access, scanPaused: false)
+        guard self.capability == .listed else { return }
+        await self.refreshJournalState()
+        guard self.capability == .listed else { return }
         if self.store.document.enabled && self.access != .full {
-            await self.reportDeviceStatus(access: self.access, scanPaused: false)
             return
         }
         await self.syncOnce()
     }
 
-    /// Enable the Photos Library source after confirming full PhotoKit access,
-    /// start observing changes, and run the initial metadata-only scan.
+    /// Enable the Photos Library source after confirming the paired journal supports it
+    /// and full PhotoKit access is granted, start observing changes, and run the initial
+    /// metadata-only scan.
     func enableAndScan() async -> Bool {
+        guard self.isPaired() else { return false }
+        let cap = await self.refreshCapability()
+        guard cap == .listed else {
+            if cap == .notListed {
+                self.journalSummary = nil
+            }
+            return false
+        }
         var access = self.media.photosAccess()
         if access == .notDetermined {
             access = await self.media.requestPhotosAccess()
@@ -183,7 +225,12 @@ final class PhotosLibraryEngine {
     func pauseWithJournalSync() async {
         self.pause()
         if self.isPaired(), self.capability == .listed {
-            try? await self.transport.postPause()
+            do {
+                try await self.transport.postPause()
+            } catch {
+                self.handleTransportError(error, logMessage: "photos library pause sync failed")
+                return
+            }
             await self.refreshJournalState()
         }
     }
@@ -192,7 +239,12 @@ final class PhotosLibraryEngine {
         self.store.document.paused = false
         self.syncStore()
         if self.isPaired(), self.capability == .listed {
-            try? await self.transport.postResume()
+            do {
+                try await self.transport.postResume()
+            } catch {
+                self.handleTransportError(error, logMessage: "photos library resume sync failed")
+                return
+            }
             await self.refreshJournalState()
         }
         await self.syncOnce()
@@ -282,8 +334,7 @@ final class PhotosLibraryEngine {
             self.syncStore()
             return true
         } catch {
-            self.lastError = String(describing: error)
-            photosEngineLog.error("photos library full metadata scan failed")
+            self.handleTransportError(error, logMessage: "photos library full metadata scan failed")
             return false
         }
     }
@@ -323,8 +374,7 @@ final class PhotosLibraryEngine {
                     self.store.document.lastScanAt = Date()
                     self.syncStore()
                 } catch {
-                    self.lastError = String(describing: error)
-                    photosEngineLog.error("photos library delta sync failed")
+                    self.handleTransportError(error, logMessage: "photos library delta sync failed")
                 }
             } else if let nextToken {
                 self.store.document.changeToken = nextToken
@@ -362,7 +412,7 @@ final class PhotosLibraryEngine {
             do {
                 response = try await self.transport.fetchWanted(limit: PhotosLibraryWire.wantedBatchLimit)
             } catch {
-                self.lastError = String(describing: error)
+                self.handleTransportError(error, logMessage: "photos library wanted poll failed")
                 break
             }
             if response.paused || response.wanted.isEmpty {
@@ -424,8 +474,7 @@ final class PhotosLibraryEngine {
                         break
                     }
                 } catch {
-                    self.lastError = String(describing: error)
-                    photosEngineLog.error("photos library copy upload failed")
+                    self.handleTransportError(error, logMessage: "photos library copy upload failed")
                     break
                 }
             }
@@ -552,14 +601,20 @@ final class PhotosLibraryEngine {
 
     private func reportDeviceStatus(access: ScreenshotsAccess, scanPaused: Bool) async {
         guard self.isPaired() else { return }
-        try? await self.transport.postStatus(
-            PhotosDeviceStatusPayload(
-                deviceName: self.deviceNameProvider(),
-                deviceKind: self.deviceKind,
-                accessState: PhotosLibraryWire.accessString(access),
-                icloudWaitingCount: self.store.document.icloudWaitingCount,
-                scanPaused: scanPaused
+        do {
+            try await self.transport.postStatus(
+                PhotosDeviceStatusPayload(
+                    deviceName: self.deviceNameProvider(),
+                    deviceKind: self.deviceKind,
+                    accessState: PhotosLibraryWire.accessString(access),
+                    icloudWaitingCount: self.store.document.icloudWaitingCount,
+                    scanPaused: scanPaused,
+                    sourceEnabled: self.store.document.enabled
+                )
             )
-        )
+        } catch let error as PhotosLibraryTransportError where error == .httpStatus(404) {
+            self.capability = .notListed
+            self.journalSummary = nil
+        } catch {}
     }
 }

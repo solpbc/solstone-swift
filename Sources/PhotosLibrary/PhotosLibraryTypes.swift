@@ -179,6 +179,23 @@ nonisolated struct PhotosDeviceStatusPayload: Encodable, Sendable {
     let accessState: String
     let icloudWaitingCount: Int
     let scanPaused: Bool
+    let sourceEnabled: Bool?
+
+    init(
+        deviceName: String,
+        deviceKind: String,
+        accessState: String,
+        icloudWaitingCount: Int,
+        scanPaused: Bool,
+        sourceEnabled: Bool? = nil
+    ) {
+        self.deviceName = deviceName
+        self.deviceKind = deviceKind
+        self.accessState = accessState
+        self.icloudWaitingCount = icloudWaitingCount
+        self.scanPaused = scanPaused
+        self.sourceEnabled = sourceEnabled
+    }
 
     enum CodingKeys: String, CodingKey {
         case deviceName = "device_name"
@@ -186,6 +203,7 @@ nonisolated struct PhotosDeviceStatusPayload: Encodable, Sendable {
         case accessState = "access_state"
         case icloudWaitingCount = "icloud_waiting_count"
         case scanPaused = "scan_paused"
+        case sourceEnabled = "source_enabled"
     }
 }
 

@@ -32,9 +32,9 @@ settings:
     SOLSTONE_AGE_SIGNAL: YES
     SOLSTONE_AGE_SIGNAL_SWIFT_FLAG_YES: -DSOLSTONE_AGE_SIGNAL
     SOLSTONE_AGE_SIGNAL_SWIFT_FLAG_NO: ""
-    # Photos Library source (Sources/PhotosLibrary). Off by default until owner screens
-    # and voice-checked copy land. Pass PHOTOS_LIBRARY=YES to enable in local/test builds.
-    SOLSTONE_PHOTOS_LIBRARY: NO
+    # Photos Library source (Sources/PhotosLibrary, phase 1 iPhone/iPad).
+    # Pass PHOTOS_LIBRARY=NO to disable in local/test builds.
+    SOLSTONE_PHOTOS_LIBRARY: YES
     SOLSTONE_PHOTOS_LIBRARY_SWIFT_FLAG_YES: -DSOLSTONE_PHOTOS_LIBRARY
     SOLSTONE_PHOTOS_LIBRARY_SWIFT_FLAG_NO: ""
     OTHER_SWIFT_FLAGS: $(inherited) $(SOLSTONE_AGE_SIGNAL_SWIFT_FLAG_$(SOLSTONE_AGE_SIGNAL)) $(SOLSTONE_PHOTOS_LIBRARY_SWIFT_FLAG_$(SOLSTONE_PHOTOS_LIBRARY))

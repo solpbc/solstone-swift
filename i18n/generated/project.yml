@@ -16,7 +16,7 @@ targets:
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it, including in the background. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
         INFOPLIST_KEY_NSCameraUsageDescription: "used to scan your journal's pairing code"
-        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "the solstone app takes in only your screenshots and adds them to your journal. other photos stay where they are."
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "the solstone app reads details for the photo sources you turn on, and takes in only screenshots or small copies of the photos your journal picks, adding them to your journal. nothing in your library is changed, and hidden photos are never read."
         INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "the solstone app adds the events on your calendars to your journal. nothing goes anywhere else."
     info:
       properties:
@@ -29,7 +29,7 @@ targets:
         NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
         NSLocationAlwaysAndWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it, including in the background. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
         NSCameraUsageDescription: "used to scan your journal's pairing code"
-        NSPhotoLibraryUsageDescription: "the solstone app takes in only your screenshots and adds them to your journal. other photos stay where they are."
+        NSPhotoLibraryUsageDescription: "the solstone app reads details for the photo sources you turn on, and takes in only screenshots or small copies of the photos your journal picks, adding them to your journal. nothing in your library is changed, and hidden photos are never read."
         NSCalendarsFullAccessUsageDescription: "the solstone app adds the events on your calendars to your journal. nothing goes anywhere else."
   SolstoneSafariExtension:
     settings:

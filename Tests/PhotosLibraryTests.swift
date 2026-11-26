@@ -82,14 +82,36 @@ final class PhotosLibraryTests: XCTestCase {
         var wantedQueue: [PhotosWantedResponse] = []
         var copyUploads: [PhotosCopyUploadPayload] = []
         var dashboardSummary: PhotosJournalDashboardSummary?
+        var dashboardResultOverride: PhotosDashboardFetchResult?
+        var statusError: (any Error)?
+        var dashboardFetchCount = 0
 
         func checkCapability() async -> Bool? { self.lock.withLock { self.capabilityListed } }
-        func fetchDashboardState() async -> PhotosJournalDashboardSummary? { self.lock.withLock { self.dashboardSummary } }
+        func fetchDashboardState() async -> PhotosJournalDashboardSummary? {
+            self.lock.withLock {
+                self.dashboardFetchCount += 1
+                return self.dashboardSummary
+            }
+        }
+        func fetchDashboardStateResult() async -> PhotosDashboardFetchResult {
+            self.lock.withLock {
+                self.dashboardFetchCount += 1
+                if let override = self.dashboardResultOverride { return override }
+                if let summary = self.dashboardSummary { return .ok(summary) }
+                return .failed
+            }
+        }
         func postScanStart(_ payload: PhotosScanStartPayload) async throws { self.lock.withLock { self.scanStarts.append(payload) } }
         func postScanBatch(_ payload: PhotosScanBatchPayload) async throws { self.lock.withLock { self.scanBatches.append(payload) } }
         func postScanFinish(_ payload: PhotosScanFinishPayload) async throws { self.lock.withLock { self.scanFinishes.append(payload) } }
         func postScanChanges(_ payload: PhotosScanChangesPayload) async throws { self.lock.withLock { self.scanChanges.append(payload) } }
-        func postStatus(_ payload: PhotosDeviceStatusPayload) async throws { self.lock.withLock { self.statuses.append(payload) } }
+        func postStatus(_ payload: PhotosDeviceStatusPayload) async throws {
+            let err: (any Error)? = self.lock.withLock {
+                self.statuses.append(payload)
+                return self.statusError
+            }
+            if let err { throw err }
+        }
 
         func fetchWanted(limit: Int) async throws -> PhotosWantedResponse {
             self.lock.withLock {
@@ -378,10 +400,98 @@ final class PhotosLibraryTests: XCTestCase {
         }
     }
 
-    func testDefaultBuildFlagKeepsPhotosLibraryOff() {
-        #if SOLSTONE_PHOTOS_LIBRARY
-        XCTFail("SOLSTONE_PHOTOS_LIBRARY must be OFF by default on main until screens land")
+    func testDefaultBuildFlagEnablesPhotosLibrary() {
+        #if !SOLSTONE_PHOTOS_LIBRARY
+        XCTFail("SOLSTONE_PHOTOS_LIBRARY must be ON by default on main")
         #endif
+    }
+
+    func testForegroundAnnouncesCapableDeviceBeforeReadingDashboardState() async {
+        let media = FakeMedia()
+        media.accessState = .notDetermined
+        let transport = FakeTransport()
+        transport.capabilityListed = true
+        transport.dashboardSummary = PhotosJournalDashboardSummary(
+            state: "ready_to_set_up",
+            substate: "never_set_up",
+            attentionReason: nil,
+            choice: .init(range: nil, canWiden: true),
+            progress: .init(chosenTotal: 0, arrived: 0, inJournal: 0, waitingOnPhone: 0),
+            scan: .init(itemsChecked: 0, itemsTotal: 0, paused: false)
+        )
+        let engine = PhotosLibraryEngine(
+            media: media,
+            store: PhotosLibraryStore(fileURL: self.tempStoreURL()),
+            transport: transport,
+            deviceNameProvider: { "Test iPad" },
+            deviceKind: "ipad"
+        )
+        engine.isPaired = { true }
+
+        await engine.foreground()
+        XCTAssertEqual(engine.capability, .listed)
+        XCTAssertFalse(engine.document.enabled)
+        XCTAssertEqual(transport.statuses.count, 1)
+        XCTAssertEqual(transport.statuses[0].deviceKind, "ipad")
+        XCTAssertEqual(transport.statuses[0].sourceEnabled, false)
+        XCTAssertEqual(transport.dashboardFetchCount, 1)
+        XCTAssertEqual(transport.scanStarts.count, 0)
+    }
+
+    func testOldJournal404AndMissingCapabilityHandleCleanlyWithoutBrokenState() async {
+        let media = FakeMedia()
+        media.accessState = .notDetermined
+        let transport = FakeTransport()
+        transport.capabilityListed = false
+        transport.dashboardResultOverride = .notFound
+        transport.statusError = PhotosLibraryTransportError.httpStatus(404)
+
+        let engine = PhotosLibraryEngine(
+            media: media,
+            store: PhotosLibraryStore(fileURL: self.tempStoreURL()),
+            transport: transport,
+            deviceNameProvider: { "Test iPhone" }
+        )
+        engine.isPaired = { true }
+
+        // 1. Foreground against an old journal sets .notListed without touching /status, /state, or /scan.
+        await engine.foreground()
+        XCTAssertEqual(engine.capability, .notListed)
+        XCTAssertNil(engine.journalSummary)
+        XCTAssertNil(engine.lastError)
+        XCTAssertEqual(transport.statuses.count, 0)
+        XCTAssertEqual(transport.dashboardFetchCount, 0)
+        XCTAssertEqual(transport.scanStarts.count, 0)
+
+        // 2. Tile & page stay calm: readyToSetUp, no scanning wedge, no turn-on/open-journal buttons, waiting-for-update copy.
+        let view = engine.viewState()
+        XCTAssertEqual(view.sourceState, .readyToSetUp)
+        XCTAssertFalse(view.showsTileSubtext)
+        XCTAssertNil(view.tileSubtext)
+        XCTAssertEqual(view.tileControl, .none)
+        XCTAssertEqual(view.primaryAction, .none)
+        XCTAssertFalse(view.showsAlreadyGrantedLine)
+        XCTAssertFalse(view.showsOpenJournalDoor)
+        XCTAssertTrue(view.showsWaitingForJournalUpdate)
+
+        // 3. Attempting enableAndScan on an old journal refuses cleanly before flipping document.enabled.
+        let started = await engine.enableAndScan()
+        XCTAssertFalse(started)
+        XCTAssertFalse(engine.document.enabled)
+        XCTAssertFalse(engine.document.everEnabled)
+        XCTAssertEqual(engine.viewState().sourceState, .readyToSetUp)
+        XCTAssertEqual(engine.viewState().primaryAction, .none)
+        XCTAssertTrue(engine.viewState().showsWaitingForJournalUpdate)
+
+        // 4. Mid-flight HTTP 404 on /status transitions cleanly to .notListed with no error state.
+        transport.capabilityListed = true
+        await engine.foreground()
+        XCTAssertEqual(engine.capability, .notListed)
+        XCTAssertNil(engine.journalSummary)
+        XCTAssertNil(engine.lastError)
+        XCTAssertEqual(engine.viewState().primaryAction, .none)
+        XCTAssertFalse(engine.viewState().showsOpenJournalDoor)
+        XCTAssertTrue(engine.viewState().showsWaitingForJournalUpdate)
     }
 
     /// Real PhotoKit simulator proof, skipped unless `PHOTOS_LIBRARY_LIVE_SIM_TEST=1`
@@ -620,12 +730,43 @@ final class PhotosLibraryTests: XCTestCase {
         XCTAssertEqual(restrictedLater.pageReason, PhotosVocabulary.restricted)
         XCTAssertEqual(restrictedLater.tileSubtext, PhotosVocabulary.restricted)
 
-        // Journal too old -> waitingForJournalUpdate flag set.
+        // Journal too old -> waitingForJournalUpdate flag set across ready, scanning, choose, and active states;
+        // no turn-on/scan/choose/open-journal buttons offered.
+        let oldJournalFresh = PhotosLibraryViewState.resolve(
+            paired: true, access: .notDetermined, capability: .notListed, document: baseDoc,
+            isScanning: false, scanChecked: 0, scanTotal: 0, journal: nil, lastPromptResult: nil
+        )
+        XCTAssertEqual(oldJournalFresh.sourceState, .readyToSetUp)
+        XCTAssertEqual(oldJournalFresh.primaryAction, .none)
+        XCTAssertFalse(oldJournalFresh.showsOpenJournalDoor)
+        XCTAssertTrue(oldJournalFresh.showsWaitingForJournalUpdate)
+
+        let oldJournalGranted = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .notListed, document: baseDoc,
+            isScanning: false, scanChecked: 0, scanTotal: 0, journal: nil, lastPromptResult: nil
+        )
+        XCTAssertEqual(oldJournalGranted.sourceState, .readyToSetUp)
+        XCTAssertEqual(oldJournalGranted.primaryAction, .none)
+        XCTAssertFalse(oldJournalGranted.showsAlreadyGrantedLine)
+        XCTAssertFalse(oldJournalGranted.showsOpenJournalDoor)
+        XCTAssertTrue(oldJournalGranted.showsWaitingForJournalUpdate)
+
         let oldJournal = PhotosLibraryViewState.resolve(
             paired: true, access: .full, capability: .notListed, document: scannedDoc,
             isScanning: false, scanChecked: 0, scanTotal: 0, journal: nil, lastPromptResult: nil
         )
+        XCTAssertEqual(oldJournal.sourceState, .readyToSetUp)
+        XCTAssertEqual(oldJournal.primaryAction, .none)
+        XCTAssertFalse(oldJournal.showsOpenJournalDoor)
         XCTAssertTrue(oldJournal.showsWaitingForJournalUpdate)
+
+        let oldJournalActive = PhotosLibraryViewState.resolve(
+            paired: true, access: .full, capability: .notListed,
+            document: PhotosLibraryDocument(everEnabled: true, enabled: true, paused: false, scanComplete: true, sentCount: 5),
+            isScanning: false, scanChecked: 0, scanTotal: 0, journal: nil, lastPromptResult: nil
+        )
+        XCTAssertFalse(oldJournalActive.showsOpenJournalDoor)
+        XCTAssertTrue(oldJournalActive.showsWaitingForJournalUpdate)
     }
 
     func testSourceIntakeRecordsLibraryPhotosOncePerAssetID() {

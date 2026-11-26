@@ -96,6 +96,7 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
     ) -> Self {
         let everOn = document.everEnabled
         let turnedOffInJournal = journal?.state == "off"
+        let journalTooOld = paired && capability == .notListed
 
         // 1. Access revoked or narrowed after having been turned on -> needs attention.
         if everOn && !turnedOffInJournal && document.enabled {
@@ -112,7 +113,7 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
                     showsPauseResume: false,
                     isPaused: document.paused,
                     showsOpenJournalDoor: paired && capability == .listed,
-                    showsWaitingForJournalUpdate: false
+                    showsWaitingForJournalUpdate: journalTooOld
                 )
             }
             if access == .restricted {
@@ -128,7 +129,7 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
                     showsPauseResume: false,
                     isPaused: document.paused,
                     showsOpenJournalDoor: paired && capability == .listed,
-                    showsWaitingForJournalUpdate: false
+                    showsWaitingForJournalUpdate: journalTooOld
                 )
             }
             if access == .denied {
@@ -144,15 +145,15 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
                     showsPauseResume: false,
                     isPaused: document.paused,
                     showsOpenJournalDoor: paired && capability == .listed,
-                    showsWaitingForJournalUpdate: false
+                    showsWaitingForJournalUpdate: journalTooOld
                 )
             }
         }
 
         // 2. Turned off in journal -> off state, with journal door and re-entry button.
         if turnedOffInJournal {
-            let canScanDirectly = paired && access == .full
-            let action: PrimaryAction = !paired ? .none : (canScanDirectly ? .scanLibrary : .turnOn)
+            let canScanDirectly = paired && !journalTooOld && access == .full
+            let action: PrimaryAction = (!paired || journalTooOld) ? .none : (canScanDirectly ? .scanLibrary : .turnOn)
             return Self(
                 sourceState: .off,
                 tileSubtext: nil,
@@ -165,7 +166,7 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
                 showsPauseResume: false,
                 isPaused: false,
                 showsOpenJournalDoor: paired && capability == .listed,
-                showsWaitingForJournalUpdate: false
+                showsWaitingForJournalUpdate: journalTooOld
             )
         }
 
@@ -185,6 +186,22 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
                     isPaused: false,
                     showsOpenJournalDoor: false,
                     showsWaitingForJournalUpdate: false
+                )
+            }
+            if journalTooOld {
+                return Self(
+                    sourceState: .readyToSetUp,
+                    tileSubtext: nil,
+                    showsTileSubtext: false,
+                    tileControl: .none,
+                    pageSubline: nil,
+                    pageReason: nil,
+                    primaryAction: .none,
+                    showsAlreadyGrantedLine: false,
+                    showsPauseResume: false,
+                    isPaused: false,
+                    showsOpenJournalDoor: false,
+                    showsWaitingForJournalUpdate: true
                 )
             }
             if access == .restricted {
@@ -248,7 +265,7 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
                     showsPauseResume: false,
                     isPaused: false,
                     showsOpenJournalDoor: false,
-                    showsWaitingForJournalUpdate: capability == .notListed
+                    showsWaitingForJournalUpdate: false
                 )
             }
             return Self(
@@ -263,14 +280,28 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
                 showsPauseResume: false,
                 isPaused: false,
                 showsOpenJournalDoor: false,
-                showsWaitingForJournalUpdate: capability == .notListed
+                showsWaitingForJournalUpdate: false
             )
         }
 
-        let journalTooOld = paired && capability == .notListed
-
         // 4. Scanning metadata -> setting up.
         if isScanning || (!document.scanComplete && journal?.substate != "choose") {
+            if journalTooOld {
+                return Self(
+                    sourceState: .readyToSetUp,
+                    tileSubtext: nil,
+                    showsTileSubtext: false,
+                    tileControl: .none,
+                    pageSubline: nil,
+                    pageReason: nil,
+                    primaryAction: .none,
+                    showsAlreadyGrantedLine: false,
+                    showsPauseResume: false,
+                    isPaused: false,
+                    showsOpenJournalDoor: false,
+                    showsWaitingForJournalUpdate: true
+                )
+            }
             let checked = max(scanChecked, journal?.scan.itemsChecked ?? document.itemsChecked)
             let total = max(scanTotal, journal?.scan.itemsTotal ?? document.itemsTotal)
             return Self(
@@ -285,7 +316,7 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
                 showsPauseResume: false,
                 isPaused: false,
                 showsOpenJournalDoor: false,
-                showsWaitingForJournalUpdate: journalTooOld
+                showsWaitingForJournalUpdate: false
             )
         }
 
@@ -298,13 +329,13 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
         }()
         if awaitingChoice {
             return Self(
-                sourceState: .enrolling,
-                tileSubtext: PhotosVocabulary.tileChoose,
-                showsTileSubtext: true,
+                sourceState: journalTooOld ? .readyToSetUp : .enrolling,
+                tileSubtext: journalTooOld ? nil : PhotosVocabulary.tileChoose,
+                showsTileSubtext: !journalTooOld,
                 tileControl: .none,
-                pageSubline: PhotosVocabulary.scanFinished,
+                pageSubline: journalTooOld ? nil : PhotosVocabulary.scanFinished,
                 pageReason: nil,
-                primaryAction: .chooseInJournal,
+                primaryAction: journalTooOld ? .none : .chooseInJournal,
                 showsAlreadyGrantedLine: false,
                 showsPauseResume: false,
                 isPaused: false,
@@ -327,7 +358,7 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
                 showsAlreadyGrantedLine: false,
                 showsPauseResume: true,
                 isPaused: true,
-                showsOpenJournalDoor: true,
+                showsOpenJournalDoor: paired && capability == .listed,
                 showsWaitingForJournalUpdate: journalTooOld
             )
         }
@@ -347,7 +378,7 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
                 showsAlreadyGrantedLine: false,
                 showsPauseResume: true,
                 isPaused: false,
-                showsOpenJournalDoor: true,
+                showsOpenJournalDoor: paired && capability == .listed,
                 showsWaitingForJournalUpdate: journalTooOld
             )
         }
@@ -365,7 +396,7 @@ nonisolated struct PhotosLibraryViewState: Equatable, Sendable {
             showsAlreadyGrantedLine: false,
             showsPauseResume: true,
             isPaused: false,
-            showsOpenJournalDoor: true,
+            showsOpenJournalDoor: paired && capability == .listed,
             showsWaitingForJournalUpdate: journalTooOld
         )
     }

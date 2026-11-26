@@ -3,6 +3,12 @@
 
 import Foundation
 
+nonisolated enum PhotosDashboardFetchResult: Equatable, Sendable {
+    case ok(PhotosJournalDashboardSummary)
+    case notFound
+    case failed
+}
+
 /// Client-initiated channel to the paired journal's `/app/devices/photos-library/*` routes.
 nonisolated protocol PhotosLibraryTransport: Sendable {
     func checkCapability() async -> Bool?
@@ -14,12 +20,19 @@ nonisolated protocol PhotosLibraryTransport: Sendable {
     func fetchWanted(limit: Int) async throws -> PhotosWantedResponse
     func postCopy(_ payload: PhotosCopyUploadPayload) async throws
     func fetchDashboardState() async -> PhotosJournalDashboardSummary?
+    func fetchDashboardStateResult() async -> PhotosDashboardFetchResult
     func postPause() async throws
     func postResume() async throws
 }
 
 nonisolated extension PhotosLibraryTransport {
     func fetchDashboardState() async -> PhotosJournalDashboardSummary? { nil }
+    func fetchDashboardStateResult() async -> PhotosDashboardFetchResult {
+        if let summary = await self.fetchDashboardState() {
+            return .ok(summary)
+        }
+        return .failed
+    }
     func postPause() async throws {}
     func postResume() async throws {}
 }
@@ -121,16 +134,26 @@ nonisolated final class AuthenticatedPhotosLibraryClient: PhotosLibraryTransport
     }
 
     func fetchDashboardState() async -> PhotosJournalDashboardSummary? {
+        guard case .ok(let summary) = await self.fetchDashboardStateResult() else { return nil }
+        return summary
+    }
+
+    func fetchDashboardStateResult() async -> PhotosDashboardFetchResult {
         guard await self.admitSend(),
               let port = await self.localPortProvider()
-        else { return nil }
+        else { return .failed }
         guard let (data, code) = try? await self.homeClient.sourceRequest(
             localPort: port,
             path: "/app/sources/photos/api/state",
             timeout: .seconds(10)
-        ), (200..<300).contains(code)
-        else { return nil }
-        return try? JSONDecoder().decode(PhotosJournalDashboardSummary.self, from: data)
+        ) else { return .failed }
+        if code == 404 {
+            return .notFound
+        }
+        guard (200..<300).contains(code),
+              let decoded = try? JSONDecoder().decode(PhotosJournalDashboardSummary.self, from: data)
+        else { return .failed }
+        return .ok(decoded)
     }
 
     func postPause() async throws {

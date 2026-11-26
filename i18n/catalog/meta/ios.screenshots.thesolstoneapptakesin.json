@@ -1,6 +1,6 @@
 {
-  "description": "Owner-facing text added since the 11-03 census.",
-  "context": "the solstone app, speaking to the owner. Wording requires review before translation.",
+  "description": "the solstone app reads details for the photo sources you turn on, and takes in only screenshots or small copies of the photos your journal picks, adding them to your journal. nothing in your library is changed, and hidden photos are never read.",
+  "context": "the solstone app, speaking to the owner. Mirrors NSPhotoLibraryUsageDescription. Wording requires review before translation.",
   "surfaces": [
     "screenshots"
   ],
@@ -9,8 +9,8 @@
   ],
   "arguments": [],
   "format_intent": "text",
-  "max_length": 112,
-  "source_revision": "f376c4b8df17852e06f8bb63eecab00d992bfba55956fa35e1c11438265a3626",
+  "max_length": 1000,
+  "source_revision": "a119c859d64dd291618021b5ea1bf2ae70134bc99a9a7303ac6e192a571d3610",
   "risk": "consent",
   "auto_merge": false
 }

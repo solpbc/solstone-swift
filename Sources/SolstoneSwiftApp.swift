@@ -1394,6 +1394,11 @@ struct SolstoneSwiftApp: App {
                         isPaired: self.appConfig.isPaired,
                         markConfirmed: self.appConfig.journalSendConfirmed
                     )
+#if SOLSTONE_PHOTOS_LIBRARY
+                    if !Self.isIntegrationMode && !Self.isUITest && self.appConfig.isPaired {
+                        await self.photosLibraryEngine.foreground()
+                    }
+#endif
                 }
                 .onChange(of: self.transferStatusMirror.applyCount) { _, _ in
                     Task { await self.shareTransferHolder.refreshActiveItems() }
@@ -1411,6 +1416,11 @@ struct SolstoneSwiftApp: App {
                             isPaired: self.appConfig.isPaired,
                             markConfirmed: confirmed
                         )
+#if SOLSTONE_PHOTOS_LIBRARY
+                        if !Self.isIntegrationMode && !Self.isUITest && self.appConfig.isPaired {
+                            await self.photosLibraryEngine.foreground()
+                        }
+#endif
                     }
                 }
                 // Last, so a stopped or held app builds none of the above.
@@ -1431,6 +1441,11 @@ struct SolstoneSwiftApp: App {
         .onChange(of: self.tunnelManager.state) { _, newState in
             switch newState {
             case .connected(_, _):
+#if SOLSTONE_PHOTOS_LIBRARY
+                if !Self.isIntegrationMode && !Self.isUITest && self.appConfig.isPaired {
+                    Task { await self.photosLibraryEngine.foreground() }
+                }
+#endif
                 if Self.isIntegrationMode,
                    // Internal compatibility arg for automation; not owner-facing UI vocabulary.
                    Self.integrationObserverTapKind == "sense",

@@ -1443,7 +1443,7 @@ ios.metadata.solstoneswift.nslocationwheninuseusagedescription = the solstone ap
 
 ios.metadata.solstoneswift.nsmicrophoneusagedescription = the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this device until you connect a journal for it to land in.
 
-ios.metadata.solstoneswift.nsphotolibraryusagedescription = the solstone app takes in only your screenshots and adds them to your journal. other photos stay where they are.
+ios.metadata.solstoneswift.nsphotolibraryusagedescription = the solstone app reads details for the photo sources you turn on, and takes in only screenshots or small copies of the photos your journal picks, adding them to your journal. nothing in your library is changed, and hidden photos are never read.
 
 ios.metadata.solstonewatch.cfbundledisplayname = solstone
 
@@ -1840,7 +1840,7 @@ ios.screenshots.thescreenshotsyoutakewait = the screenshots you take wait on thi
 
 ios.screenshots.thesolstoneappcantread = the solstone app can't read your photos. allow full access in ios settings to turn this on.
 
-ios.screenshots.thesolstoneapptakesin = the solstone app takes in only your screenshots and adds them to your journal. other photos stay where they are.
+ios.screenshots.thesolstoneapptakesin = the solstone app reads details for the photo sources you turn on, and takes in only screenshots or small copies of the photos your journal picks, adding them to your journal. nothing in your library is changed, and hidden photos are never read.
 
 ios.screenshots.thisscreenshotcouldntbecopied = this screenshot couldn't be copied.
 

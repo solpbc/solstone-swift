@@ -486,11 +486,35 @@ private extension ShellPaneShotTests {
 
     func tapHittable(_ element: XCUIElement, in app: XCUIApplication, missing message: String) {
         XCTAssertTrue(element.waitForExistence(timeout: 10), message)
-        if !element.isHittable {
-            app.swipeUp()
-        }
-        if !element.isHittable {
-            app.swipeUp()
+        let surface = app.scrollViews["dayHome.surface"]
+        // SwiftUI can report a below-fold deck tile as hittable while its center
+        // sits behind the bottom journal bar (especially in landscape once more
+        // tiles join Home). Scroll the deck until the element's frame is clear of
+        // both the navigation bar and the bottom journal bar before tapping.
+        if surface.exists {
+            for _ in 0..<8 {
+                let footer = app.buttons["dayHome.journalSetup"].exists
+                    ? app.buttons["dayHome.journalSetup"] : app.buttons["dayHome.openInJournal"]
+                let bottom = footer.exists ? footer.frame.minY : app.frame.maxY - 34
+                let nav = app.navigationBars.firstMatch
+                let top = nav.exists ? nav.frame.maxY : app.frame.minY
+                if element.isHittable, element.frame.minY >= top, element.frame.maxY <= bottom {
+                    element.tap()
+                    return
+                }
+                if element.frame.minY < top {
+                    surface.swipeDown()
+                } else {
+                    surface.swipeUp()
+                }
+            }
+        } else {
+            if !element.isHittable {
+                app.swipeUp()
+            }
+            if !element.isHittable {
+                app.swipeUp()
+            }
         }
         XCTAssertTrue(element.isHittable, "\(message) (not hittable)")
         element.tap()

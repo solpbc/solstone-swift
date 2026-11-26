@@ -8,6 +8,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Added
 
+- on iphone and ipad, you can now connect your Photos library as a source with an up-to-date journal. after you allow full Photos access, the app scans only photo details without bringing in any photos so you can choose a date range in your journal before any photos come in. the solstone app then takes in small copies of the photos your journal picks and adds them to your journal. hidden photos are never read, and nothing in your library is changed. you can pause or resume anytime from home or the photos screen.
 - on iphone and ipad, large files you import now go into your journal in pieces. they pick up where they left off after a network change, switching apps, or a lost connection, without sending finished pieces again. the import tile and import screen show progress as your journal receives the file and show when a transfer pauses to reconnect. from the import screen, you can keep a large import sending in the background or cancel it. smaller files, and imports to an older journal, still go in as before.
 
 ### Fixed

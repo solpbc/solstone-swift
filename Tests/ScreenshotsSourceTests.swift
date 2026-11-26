@@ -141,7 +141,7 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         XCTAssertEqual(ScreenshotsVocabulary.importAction(isOn: true), "open screenshots")
         XCTAssertEqual(
             ScreenshotsVocabulary.photosUsage,
-            "the solstone app takes in only your screenshots and adds them to your journal. other photos stay where they are."
+            "the solstone app reads details for the photo sources you turn on, and takes in only screenshots or small copies of the photos your journal picks, adding them to your journal. nothing in your library is changed, and hidden photos are never read."
         )
     }
 
