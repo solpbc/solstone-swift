@@ -39,6 +39,7 @@ final class MobileSegmentEngine {
     @ObservationIgnored private var screencastScheduleAnchorMs: Int64 = 0
     @ObservationIgnored private var screencastSchedulePeriodSeconds: Int = 300
     @ObservationIgnored var rotateAudio: (@MainActor @Sendable (URL, UUID) async throws -> ObserverRecordedChunk?)?
+    @ObservationIgnored var onAudioRotationFailureSettled: (@MainActor () -> Void)?
     @ObservationIgnored var screencastRolloverHandler: (@MainActor @Sendable (MobileSegmentScreencastHandoffRecord) -> Bool)?
 
     var heldScreencastAdoptionSkipSegmentID: UUID? {
@@ -640,6 +641,12 @@ final class MobileSegmentEngine {
         let isReAnchor = oldSources.contains(.screencast) && nextSources.contains(.screencast) && oldSources != nextSources
 
         var candidateSegmentIDToRemoveOnRollback: UUID?
+        var needsAudioRotationFailureSettle = false
+        defer {
+            if needsAudioRotationFailureSettle {
+                self.onAudioRotationFailureSettled?()
+            }
+        }
 
         do {
             let nextSegmentID: UUID?
@@ -815,6 +822,7 @@ final class MobileSegmentEngine {
                         )
                     }
                 } catch {
+                    needsAudioRotationFailureSettle = true
                     let priorChunk: ObserverRecordedChunk?
                     if let handoffFailure = error as? PhoneAudioRotationHandoffFailure {
                         priorChunk = handoffFailure.priorChunk
@@ -912,6 +920,10 @@ final class MobileSegmentEngine {
                         preservePendingAudio: false,
                         preservePendingLocation: true
                     )
+                    if needsAudioRotationFailureSettle {
+                        needsAudioRotationFailureSettle = false
+                        self.onAudioRotationFailureSettled?()
+                    }
                     try await self.performBoundary(
                         segmentID: activeNextSegmentID,
                         oldSources: activeNextSources,

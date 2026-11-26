@@ -68,8 +68,36 @@ enum ObserverManagerDependencyRegistrationWitness {
 @MainActor
 @Observable
 final class ObserverManager {
-    var state: ObserverState = .idle
+    var state: ObserverState = .idle {
+        didSet {
+            self.notifySustainingBackgroundIfNeeded()
+        }
+    }
     private var microphoneHoldOpen = false
+    private var awaitingRotationFailureFinalizationCount = 0 {
+        didSet {
+            self.notifySustainingBackgroundIfNeeded()
+        }
+    }
+
+    var isSustainingBackground: Bool {
+        if self.awaitingRotationFailureFinalizationCount > 0 {
+            return true
+        }
+        switch self.state {
+        case .starting, .active, .stopping:
+            return true
+        case .idle, .microphoneTaken, .error:
+            return false
+        }
+    }
+
+    @ObservationIgnored var onSustainingBackgroundChanged: (@MainActor (Bool) -> Void)? {
+        didSet {
+            self.lastReportedSustainingBackground = self.isSustainingBackground
+        }
+    }
+    @ObservationIgnored private var lastReportedSustainingBackground = false
 
     var microphoneTakenPause: MicrophoneTakenPause? {
         switch self.state {
@@ -126,6 +154,9 @@ final class ObserverManager {
         self.clock = clock
         self.liveActivity = liveActivity
         self.defaults = defaults
+        self.mobileSegmentEngine.onAudioRotationFailureSettled = { [weak self] in
+            self?.endRotationFailureFinalization()
+        }
         self.mobileSegmentEngine.rotateAudio = { [weak self, weak recorder] url, nextSegmentID in
             guard let self, let recorder, let sessionID = self.currentSessionID else { return nil }
             self.currentSegmentID = nextSegmentID
@@ -134,6 +165,7 @@ final class ObserverManager {
             } catch {
                 let stage = (error as? PhoneAudioRotationHandoffFailure)?.stage.rawValue ?? "unknown"
                 self.noteObserverDiagnostic(reason: "observer_rotation_failed_\(stage)")
+                self.beginRotationFailureFinalization()
                 self.resetRuntime()
                 self.state = .error(.unavailable(reason: AppStrings.ios_observer_audioinputunavailable()))
                 await self.liveActivity.end(sessionID: sessionID, reason: .system)
@@ -290,7 +322,10 @@ final class ObserverManager {
         return await self.stopCapture(endReason: .owner)
     }
 
-    private func stopCapture(endReason: ObserverActivityEndReason) async -> ObserverStopOutcome {
+    private func stopCapture(
+        endReason: ObserverActivityEndReason,
+        terminalState: ObserverState = .idle
+    ) async -> ObserverStopOutcome {
         let wasActive: Bool
         switch self.state {
         case .idle, .microphoneTaken:
@@ -320,7 +355,7 @@ final class ObserverManager {
         }
 
         self.resetRuntime()
-        self.state = .idle
+        self.state = terminalState
         if let failure = stopResult.failure {
             return .refused(.error(failure))
         }
@@ -436,14 +471,18 @@ private extension ObserverManager {
                     reason: "observer_configuration_change",
                     detail: JournalEventDetail(configurationRestartFailures: 1)
                 )
-                _ = await self.stopCapture(endReason: .system)
-                self.state = .error(.audioSessionConflict)
+                let stopOutcome = await self.stopCapture(endReason: .system, terminalState: .error(.audioSessionConflict))
+                if stopOutcome == .alreadyStopped {
+                    self.state = .error(.audioSessionConflict)
+                }
             }
         case .mediaServicesReset:
             managerLog.error("observer: media services reset")
             self.noteObserverDiagnostic(reason: "observer_media_services_reset")
-            _ = await self.stopCapture(endReason: .system)
-            self.state = .error(.audioSessionConflict)
+            let stopOutcome = await self.stopCapture(endReason: .system, terminalState: .error(.audioSessionConflict))
+            if stopOutcome == .alreadyStopped {
+                self.state = .error(.audioSessionConflict)
+            }
         }
     }
 
@@ -547,11 +586,10 @@ private extension ObserverManager {
             entersPause = false
         }
 
-        _ = await self.stopCapture(endReason: .system)
-        if entersPause {
-            self.state = .microphoneTaken
-        } else {
-            self.state = .error(.audioSessionConflict)
+        let terminalState: ObserverState = entersPause ? .microphoneTaken : .error(.audioSessionConflict)
+        let stopOutcome = await self.stopCapture(endReason: .system, terminalState: terminalState)
+        if stopOutcome == .alreadyStopped {
+            self.state = terminalState
         }
     }
 
@@ -588,8 +626,10 @@ private extension ObserverManager {
         if self.watchdogStrikes >= observerWatchdogStrikeLimit {
             managerLog.error("observer: tap-write stall — stopping")
             self.noteObserverDiagnostic(reason: "observer_tap_write_stall")
-            _ = await self.stopCapture(endReason: .system)
-            self.state = .error(.audioSessionConflict)
+            let stopOutcome = await self.stopCapture(endReason: .system, terminalState: .error(.audioSessionConflict))
+            if stopOutcome == .alreadyStopped {
+                self.state = .error(.audioSessionConflict)
+            }
             return true
         }
         return false
@@ -653,8 +693,26 @@ private extension ObserverManager {
 
         managerLog.error("observer: active writer faulted: \(fault.reason, privacy: .public)")
         self.diagnosticLog?.append(category: .diagnostics, message: fault.reason, detail: fault.reason)
-        _ = await self.stopCapture(endReason: .system)
-        self.state = .error(.unavailable(reason: AppStrings.ios_observer_audioinputunavailable()))
+        let terminalError: ObserverState = .error(.unavailable(reason: AppStrings.ios_observer_audioinputunavailable()))
+        let stopOutcome = await self.stopCapture(endReason: .system, terminalState: terminalError)
+        if stopOutcome == .alreadyStopped {
+            self.state = terminalError
+        }
+    }
+
+    func beginRotationFailureFinalization() {
+        self.awaitingRotationFailureFinalizationCount += 1
+    }
+
+    func endRotationFailureFinalization() {
+        self.awaitingRotationFailureFinalizationCount = max(0, self.awaitingRotationFailureFinalizationCount - 1)
+    }
+
+    func notifySustainingBackgroundIfNeeded() {
+        let current = self.isSustainingBackground
+        guard current != self.lastReportedSustainingBackground else { return }
+        self.lastReportedSustainingBackground = current
+        self.onSustainingBackgroundChanged?(current)
     }
 
     func resetRuntime() {

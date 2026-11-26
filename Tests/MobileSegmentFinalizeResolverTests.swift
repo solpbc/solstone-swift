@@ -364,6 +364,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
 
         // Segment was NOT deleted. New uploader on same store enqueues exactly one TransferManifest
         let harness1New = try await self.makeHarness()
+        await harness1New.engine.pause()
         let uploader1New = MobileSegmentUploader(transferEngine: harness1New.engine, store: harness.store, clock: self.clock)
         await uploader1New.resumeFromDisk()
 
@@ -419,6 +420,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
 
         // Now new uploader resumes from disk
         let harnessPart2New = try await self.makeHarness()
+        await harnessPart2New.engine.pause()
         let uploaderPart2New = MobileSegmentUploader(transferEngine: harnessPart2New.engine, store: harnessForPart2.store, clock: self.clock)
         await uploaderPart2New.resumeFromDisk()
 

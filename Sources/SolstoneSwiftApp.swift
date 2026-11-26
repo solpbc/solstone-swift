@@ -67,8 +67,7 @@ struct SolstoneSwiftApp: App {
     @State private var deviceMigrationOwner: DeviceMigrationOwnerModel
     @State private var pairFlowPresence: PairFlowPresence
     @State private var ageSignal: AgeSignalModel
-    @State private var backgroundDrainTask: Task<Void, Never>?
-    @State private var didBootstrapTransfer = false
+    private let observerBackgroundTunnelCoordinator: ObserverBackgroundTunnelCoordinator
     @State private var safariTransferReady = false
     @State private var integrationObserverStartTask: Task<Void, Never>?
     @State private var integrationObserverStopTask: Task<Void, Never>?
@@ -827,6 +826,7 @@ struct SolstoneSwiftApp: App {
         AppDependencyManager.shared.add(dependency: observerManager)
         AppDependencyManager.shared.add(dependency: observerManager as any ObserverSessionControlling)
         ObserverManagerDependencyRegistrationWitness.recordRegistration(of: observerManager)
+        weak var importBackgroundUploadRef: ImportBackgroundUploadCoordinator?
         let finishSyncing = FinishSyncingCoordinator(
             totals: {
                 sendableUploadTotals(
@@ -876,7 +876,23 @@ struct SolstoneSwiftApp: App {
             isConnected: {
                 tunnel.state.isConnected
             },
+            isSiblingSustaining: {
+                isBackgroundTunnelSustained(
+                    locationSustaining: locationManager.isSustainingBackground,
+                    finishSyncingActive: false,
+                    importUploadActive: importBackgroundUploadRef?.isSustainingBackground ?? false,
+                    observerAudioSustaining: observerManager.isSustainingBackground
+                )
+            },
             disconnect: {
+                guard !isBackgroundTunnelSustained(
+                    locationSustaining: locationManager.isSustainingBackground,
+                    finishSyncingActive: false,
+                    importUploadActive: importBackgroundUploadRef?.isSustainingBackground ?? false,
+                    observerAudioSustaining: observerManager.isSustainingBackground
+                ) else {
+                    return
+                }
                 tunnel.cancelConnect()
                 tunnel.cancelReconnect()
                 tunnel.stopNetworkMonitoring()
@@ -920,8 +936,12 @@ struct SolstoneSwiftApp: App {
             },
             shouldDisconnectOnExit: {
                 UIApplication.shared.applicationState == .background
-                    && !locationManager.isSustainingBackground
-                    && !finishSyncing.isSustainingBackground
+                    && !isBackgroundTunnelSustained(
+                        locationSustaining: locationManager.isSustainingBackground,
+                        finishSyncingActive: finishSyncing.isSustainingBackground,
+                        importUploadActive: false,
+                        observerAudioSustaining: observerManager.isSustainingBackground
+                    )
             },
             disconnect: {
                 tunnel.cancelConnect()
@@ -930,6 +950,7 @@ struct SolstoneSwiftApp: App {
                 await tunnel.disconnect()
             }
         )
+        importBackgroundUploadRef = importBackgroundUpload
         let foregroundDrainGate = ForegroundDrainGate(drive: {
             await driveUploadDrain(
                 mobileSegment: mobileSegmentUploader,
@@ -1021,6 +1042,112 @@ struct SolstoneSwiftApp: App {
         if ageSignal.presentation == .stopped || ageSignal.presentation == .held {
             ageSignal.onBlocked()
         }
+        tunnel.isBackgroundSustained = { [weak locationManager, weak finishSyncing, weak importBackgroundUpload, weak observerManager] in
+            isBackgroundTunnelSustained(
+                locationSustaining: locationManager?.isSustainingBackground ?? false,
+                finishSyncingActive: finishSyncing?.isSustainingBackground ?? false,
+                importUploadActive: importBackgroundUpload?.isSustainingBackground ?? false,
+                observerAudioSustaining: observerManager?.isSustainingBackground ?? false
+            )
+        }
+        let observerBackgroundTunnelCoordinator = ObserverBackgroundTunnelCoordinator(
+            tunnelManager: tunnel,
+            transferEndpointResolver: transferEndpointResolver,
+            transferEngine: transferEngine,
+            bootstrapTransferAction: {
+                let isAppActive = tunnel.hasReceivedScenePhase
+                    ? (tunnel.scenePhase == .active)
+                    : (ObserverBackgroundTunnelCoordinator.applicationScenePhase() == .active)
+                await Self.runAppBootstrapTransfer(
+                    appConfig: appConfig,
+                    transferConditionsSource: transferConditionsSource,
+                    transferEngine: transferEngine,
+                    transferEnqueuer: transferEnqueuer,
+                    mobileSegmentUploader: mobileSegmentUploader,
+                    shareImportStore: shareImportStore,
+                    shareTransferHolder: shareTransferHolder,
+                    importBackgroundUpload: importBackgroundUpload,
+                    calendarSource: calendarSource,
+                    calendarTransferHolder: calendarTransferHolder,
+                    obsidianSource: obsidianSource,
+                    obsidianTransferHolder: obsidianTransferHolder,
+                    screenshotsSource: screenshotsSource,
+                    diagnosticLog: log,
+                    isAppActive: isAppActive
+                )
+            },
+            onTunnelConnected: { localPort in
+                await shareTransferHolder.reconcileReadyToReview(
+                    localPort: localPort,
+                    instanceID: appConfig.deviceID,
+                    isPaired: appConfig.isPaired,
+                    markConfirmed: appConfig.journalSendConfirmed
+                )
+                await foregroundDrainGate.requestDrain()
+            },
+            onTunnelRevoked: {
+                appConfig.sharedSources.revoke()
+            },
+            onTunnelClearPairingRefused: {
+                shareTransferHolder.clearPairingRefused()
+            },
+            isPaired: {
+                appConfig.isPaired
+            },
+            allowsActivity: {
+                ageSignal.allowsActivity
+            },
+            isObserverSustaining: {
+                observerManager.isSustainingBackground
+            },
+            isAnyBackgroundSustaining: {
+                isBackgroundTunnelSustained(
+                    locationSustaining: locationManager.isSustainingBackground,
+                    finishSyncingActive: finishSyncing.isSustainingBackground,
+                    importUploadActive: importBackgroundUpload.isSustainingBackground,
+                    observerAudioSustaining: observerManager.isSustainingBackground
+                )
+            },
+            totals: {
+                sendableUploadTotals(
+                    mobileSegment: mobileSegmentTransferHolder,
+                    watch: watchUploaderHolder,
+                    share: shareTransferHolder,
+                    calendar: calendarTransferHolder,
+                    obsidian: obsidianTransferHolder,
+                    screenshotsPending: screenshotsSource.waitingCount,
+                    screenshotsUnsendable: screenshotsSource.unsendableCount
+                )
+            },
+            inFlight: {
+                uploadInFlight(
+                    mobileSegment: mobileSegmentTransferHolder,
+                    watch: watchUploaderHolder,
+                    share: shareTransferHolder,
+                    calendar: calendarTransferHolder
+                )
+            },
+            backoff: {
+                uploadBackoff(mirror: transferStatusMirror)
+            },
+            driveDrain: {
+                await driveUploadDrain(
+                    mobileSegment: mobileSegmentUploader,
+                    transferEngine: transferEngine,
+                    shareImportStore: shareImportStore,
+                    shareTransferHolder: shareTransferHolder,
+                    diagnosticLog: log,
+                    watchDrain: watchSegmentDrain
+                )
+            },
+            clock: observerClock,
+            isIntegrationMode: Self.isIntegrationMode,
+            isUITest: Self.isUITest
+        )
+        if !Self.isUnitTest {
+            observerBackgroundTunnelCoordinator.install(on: observerManager)
+        }
+        self.observerBackgroundTunnelCoordinator = observerBackgroundTunnelCoordinator
         self._appConfig = State(initialValue: appConfig)
         self._appGroupMirror = State(initialValue: appGroupMirror)
         self._onboardingFlow = State(initialValue: onboardingFlow)
@@ -1302,28 +1429,8 @@ struct SolstoneSwiftApp: App {
             self.handleScenePhase(.inactive, self.scenePhase)
         }
         .onChange(of: self.tunnelManager.state) { _, newState in
-            if case .error(.revoked) = newState { self.appConfig.sharedSources.revoke() }
             switch newState {
-            case .connected(let port, _):
-                let connection = self.tunnelManager.activeConnection
-                let pairingIdentity = self.tunnelManager.dialedPairingIdentity
-                self.shareTransferHolder.clearPairingRefused()
-                Task {
-                    await self.transferEndpointResolver.update(
-                        activeLocalPort: connection?.port ?? port,
-                        connectionEpoch: connection?.epoch ?? self.tunnelManager.connectionEpoch
-                    )
-                    await self.transferEngine.noteNewConnectionEstablished(pairingIdentity: pairingIdentity)
-                    await self.transferEngine.endpointAvailabilityChanged()
-                    await self.shareTransferHolder.reconcileReadyToReview(
-                        localPort: connection?.port ?? port,
-                        instanceID: self.appConfig.deviceID,
-                        isPaired: self.appConfig.isPaired,
-                        markConfirmed: self.appConfig.journalSendConfirmed
-                    )
-                }
-                Task { await self.foregroundDrainGate.requestDrain() }
-
+            case .connected(_, _):
                 if Self.isIntegrationMode,
                    // Internal compatibility arg for automation; not owner-facing UI vocabulary.
                    Self.integrationObserverTapKind == "sense",
@@ -1338,10 +1445,6 @@ struct SolstoneSwiftApp: App {
                     }
                 }
             case .connecting, .waitingForHome, .disconnected, .error:
-                Task {
-                    await self.transferEndpointResolver.update(activeLocalPort: nil, connectionEpoch: nil)
-                    await self.transferEngine.endpointAvailabilityChanged()
-                }
                 self.integrationObserverStartTask?.cancel()
                 self.integrationObserverStartTask = nil
                 self.integrationObserverStopTask?.cancel()
@@ -1404,8 +1507,7 @@ struct SolstoneSwiftApp: App {
                 Task { await safariSource.refreshAsync() }
                 Task { await safariSource.refreshExtensionState() }
             }
-            self.backgroundDrainTask?.cancel()
-            self.backgroundDrainTask = nil
+            self.observerBackgroundTunnelCoordinator.cancelBackgroundDrain()
             if Self.shouldRunLaunchMaintenance(scenePhase: newPhase) {
                 Task {
                     await self.launchMaintenanceCoordinator.runForegroundMaintenance()
@@ -1482,72 +1584,41 @@ struct SolstoneSwiftApp: App {
             if Self.isIntegrationMode || Self.isUITest {
                 return
             }
-            let coordinator = BackgroundDrainCoordinator(
-                totals: {
-                    sendableUploadTotals(
-                        mobileSegment: self.mobileSegmentTransferHolder,
-                        watch: self.watchUploaderHolder,
-                        share: self.shareTransferHolder,
-                        calendar: self.calendarTransferHolder,
-                        obsidian: self.obsidianTransferHolder
-                    )
-                },
-                inFlight: {
-                    uploadInFlight(
-                        mobileSegment: self.mobileSegmentTransferHolder,
-                        watch: self.watchUploaderHolder,
-                        share: self.shareTransferHolder,
-                        calendar: self.calendarTransferHolder
-                    )
-                },
-                backoff: {
-                    uploadBackoff(mirror: self.transferStatusMirror)
-                },
-                isSustaining: {
-                    isBackgroundTunnelSustained(
-                        locationSustaining: self.locationManager.isSustainingBackground,
-                        finishSyncingActive: self.finishSyncingCoordinator.isSustainingBackground,
-                        importUploadActive: self.importBackgroundUploadCoordinator.isSustainingBackground
-                    )
-                },
-                isConnected: { self.tunnelManager.state.isConnected },
-                drive: {
-                    await driveUploadDrain(
-                        mobileSegment: self.mobileSegmentUploader,
-                        transferEngine: self.transferEngine,
-                        shareImportStore: self.shareImportStore,
-                        shareTransferHolder: self.shareTransferHolder,
-                        diagnosticLog: self.diagnosticLog,
-                        watchDrain: self.watchSegmentDrain
-                    )
-                },
-                disconnect: {
-                    self.tunnelManager.cancelConnect()
-                    self.tunnelManager.cancelReconnect()
-                    self.tunnelManager.stopNetworkMonitoring()
-                    await self.tunnelManager.disconnect()
-                },
-                asserter: UIBackgroundTaskAsserter()
-            )
-            self.backgroundDrainTask = Task {
-                await coordinator.run()
-            }
+            self.observerBackgroundTunnelCoordinator.startBackgroundDrain()
         default:
             break
         }
     }
 
     private func bootstrapTransfer() async {
-        guard !self.didBootstrapTransfer else { return }
-        self.didBootstrapTransfer = true
+        await self.observerBackgroundTunnelCoordinator.bootstrapTransferIfNeeded()
+    }
 
-        await self.transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.mobileSegment) { [weak mobileSegmentUploader = self.mobileSegmentUploader] manifest, _ in
+    @MainActor
+    private static func runAppBootstrapTransfer(
+        appConfig: AppConfig,
+        transferConditionsSource: TransferConditionsSource,
+        transferEngine: TransferEngine,
+        transferEnqueuer: ObserverAudioTransferEnqueuer,
+        mobileSegmentUploader: MobileSegmentUploader,
+        shareImportStore: ShareImportStore,
+        shareTransferHolder: ShareTransferHolder,
+        importBackgroundUpload: ImportBackgroundUploadCoordinator,
+        calendarSource: CalendarSourceEngine,
+        calendarTransferHolder: CalendarTransferHolder,
+        obsidianSource: ObsidianSourceEngine,
+        obsidianTransferHolder: ObsidianTransferHolder,
+        screenshotsSource: ScreenshotsSourceEngine,
+        diagnosticLog: DiagnosticLog,
+        isAppActive: Bool
+    ) async {
+        await transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.mobileSegment) { [weak mobileSegmentUploader] manifest, _ in
             guard let segmentID = manifest.observerIngest?.segmentID else { return }
             try await MainActor.run {
                 try mobileSegmentUploader?.writeUploadedTombstone(segmentID: segmentID)
             }
         }
-        await self.transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.share) { [weak shareImportStore = self.shareImportStore, weak shareTransferHolder = self.shareTransferHolder, weak appConfig = self.appConfig] manifest, successKind in
+        await transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.share) { [weak shareImportStore, weak shareTransferHolder, weak appConfig] manifest, successKind in
             try await MainActor.run {
                 try shareImportStore?.recordDelivered(
                     manifest: manifest,
@@ -1557,17 +1628,17 @@ struct SolstoneSwiftApp: App {
             }
             await shareTransferHolder?.refreshActiveItems()
         }
-        await self.transferEngine.registerAttentionHook(sourceKey: ObserverAudioTransferSource.share) { [weak shareTransferHolder = self.shareTransferHolder] _ in
+        await transferEngine.registerAttentionHook(sourceKey: ObserverAudioTransferSource.share) { [weak shareTransferHolder] _ in
             await shareTransferHolder?.refreshActiveItems()
         }
-        await self.transferEngine.setResumableProgressObserver { [weak coordinator = self.importBackgroundUploadCoordinator] itemID, progress in
+        await transferEngine.setResumableProgressObserver { [weak coordinator = importBackgroundUpload] itemID, progress in
             await MainActor.run {
                 coordinator?.handleResumableProgress(itemID: itemID, progress: progress)
             }
         }
         // A calendar file reaching the journal, or one the owner removed there, leaves room for
         // an import's next files.
-        await self.transferEngine.registerDeliveredHook(sourceKey: CalendarTransfer.sourceKey) { [calendarSource = self.calendarSource, calendarTransferHolder = self.calendarTransferHolder] _, _ in
+        await transferEngine.registerDeliveredHook(sourceKey: CalendarTransfer.sourceKey) { [calendarSource, calendarTransferHolder] _, _ in
             await MainActor.run {
                 calendarSource.deliveryProgressed()
             }
@@ -1575,28 +1646,28 @@ struct SolstoneSwiftApp: App {
         }
         // A calendar file the journal turned away leaves the queue too, so an import does not
         // stall behind it.
-        await self.transferEngine.registerAttentionHook(sourceKey: CalendarTransfer.sourceKey) { [calendarSource = self.calendarSource, calendarTransferHolder = self.calendarTransferHolder] _ in
+        await transferEngine.registerAttentionHook(sourceKey: CalendarTransfer.sourceKey) { [calendarSource, calendarTransferHolder] _ in
             await MainActor.run {
                 calendarSource.deliveryProgressed()
             }
             await calendarTransferHolder.refreshNoteCounts()
         }
         // An obsidian file reaching the journal leaves room for next files.
-        await self.transferEngine.registerDeliveredHook(sourceKey: ObsidianTransfer.sourceKey) { [obsidianTransferHolder = self.obsidianTransferHolder] _, _ in
+        await transferEngine.registerDeliveredHook(sourceKey: ObsidianTransfer.sourceKey) { [obsidianTransferHolder] _, _ in
             await obsidianTransferHolder.refreshNoteCounts()
         }
         // An obsidian file the journal turned away leaves the queue too.
-        await self.transferEngine.registerAttentionHook(sourceKey: ObsidianTransfer.sourceKey) { [obsidianTransferHolder = self.obsidianTransferHolder] _ in
+        await transferEngine.registerAttentionHook(sourceKey: ObsidianTransfer.sourceKey) { [obsidianTransferHolder] _ in
             await obsidianTransferHolder.refreshNoteCounts()
         }
-        await self.transferEngine.registerDeliveredHook(sourceKey: ScreenshotsWire.sourceKey) { [screenshotsSource = self.screenshotsSource] manifest, _ in
+        await transferEngine.registerDeliveredHook(sourceKey: ScreenshotsWire.sourceKey) { [screenshotsSource] manifest, _ in
             guard let localIdentifier = ScreenshotsTransfer.localIdentifier(manifest),
                   let hash = ScreenshotsTransfer.hash(manifest) else { return }
             await MainActor.run {
                 screenshotsSource.noteDelivered(localIdentifier: localIdentifier, hash: hash)
             }
         }
-        await self.transferEngine.registerAttentionHook(sourceKey: ScreenshotsWire.sourceKey) { [screenshotsSource = self.screenshotsSource] manifest in
+        await transferEngine.registerAttentionHook(sourceKey: ScreenshotsWire.sourceKey) { [screenshotsSource] manifest in
             guard let localIdentifier = ScreenshotsTransfer.localIdentifier(manifest) else { return }
             await MainActor.run {
                 screenshotsSource.noteRefused(localIdentifier: localIdentifier)
@@ -1606,10 +1677,10 @@ struct SolstoneSwiftApp: App {
         let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         await Self.bootstrapTransfer(
             initialize: {
-                self.transferConditionsSource.start {
-                    Task { await self.transferEngine.kick() }
+                transferConditionsSource.start {
+                    Task { await transferEngine.kick() }
                 }
-                try await self.transferEngine.initialize()
+                try await transferEngine.initialize()
             },
             appGroupRoot: {
                 try AppGroupContainer.rootURL()
@@ -1620,40 +1691,40 @@ struct SolstoneSwiftApp: App {
                     appGroupRootURL: appGroupRoot,
                     legacyRootURL: (cacheRoot ?? FileManager.default.temporaryDirectory)
                         .appendingPathComponent(WatchTransferSpoolMigrator.legacyCacheDirectoryName, isDirectory: true),
-                    transferEnqueuer: self.transferEnqueuer,
-                    diagnosticLog: self.diagnosticLog
+                    transferEnqueuer: transferEnqueuer,
+                    diagnosticLog: diagnosticLog
                 )
                 await MobileSegmentTransferSpoolMigrator.migrate(
                     appGroupRootURL: appGroupRoot,
                     observerCacheRootURL: cacheRoot?.appendingPathComponent("Observer", isDirectory: true),
-                    store: self.mobileSegmentUploader.storeForTransferMigration,
-                    diagnosticLog: self.diagnosticLog
+                    store: mobileSegmentUploader.storeForTransferMigration,
+                    diagnosticLog: diagnosticLog
                 )
                 await ShareImportTransferSpoolMigrator.migrate(
                     appGroupRootURL: appGroupRoot,
-                    store: self.shareImportStore,
-                    transferEngine: self.transferEngine,
-                    diagnosticLog: self.diagnosticLog
+                    store: shareImportStore,
+                    transferEngine: transferEngine,
+                    diagnosticLog: diagnosticLog
                 )
             },
             reconcile: {
-                await self.mobileSegmentUploader.resumeFromDisk()
-                self.shareImportStore.refreshFromDisk()
+                await mobileSegmentUploader.resumeFromDisk()
+                shareImportStore.refreshFromDisk()
                 // The photo-library import is retired. An album import that was in progress does not continue.
                 // The calendar source finishes a step a kill interrupted before anything is sent.
                 // It reads nothing unless the owner has set it up.
-                await self.calendarSource.launch()
-                await self.calendarTransferHolder.refreshNoteCounts()
-                self.obsidianSource.setAppActive(self.scenePhase == .active)
-                await self.obsidianSource.launch()
-                await self.obsidianTransferHolder.refreshNoteCounts()
-                await self.screenshotsSource.launch()
+                await calendarSource.launch()
+                await calendarTransferHolder.refreshNoteCounts()
+                obsidianSource.setAppActive(isAppActive)
+                await obsidianSource.launch()
+                await obsidianTransferHolder.refreshNoteCounts()
+                await screenshotsSource.launch()
             },
             enableDispatch: {
-                await self.transferEngine.enableDispatch()
+                await transferEngine.enableDispatch()
             },
             reportFailure: { reason, error in
-                self.diagnosticLog.append(
+                diagnosticLog.append(
                     category: .upload,
                     severity: .warning,
                     message: AppStrings.ios_transfer_needsattention(),

@@ -196,8 +196,8 @@ final class CFTunnelTransport: Transporting {
     /// within about a second and a half.
     nonisolated static let foregroundKeepaliveInterval: Duration = .milliseconds(500)
     /// In the background nothing shows the connection, and the liveness probe there runs about
-    /// every 30 s too, so the keepalive pings about twice a minute instead of twice a second.
-    nonisolated static let backgroundKeepaliveInterval: Duration = .seconds(30)
+    /// every 18 s too, so the keepalive stays inside the journal's 30 s active window.
+    nonisolated static let backgroundKeepaliveInterval: Duration = .seconds(18)
 
     public private(set) var connectionMode: ConnectionMode?
     public private(set) var generationSnapshot = TransportGenerationSnapshot(

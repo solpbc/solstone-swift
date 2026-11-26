@@ -90,6 +90,7 @@ public final class PathMonitor: Sendable {
     private let source: PathMonitoringSource
     private var debounceTask: Task<Void, Never>?
     private var generation = 0
+    public private(set) var isMonitoring = false
 
     public init() {
         self.source = NWPathMonitoringSource()
@@ -101,6 +102,7 @@ public final class PathMonitor: Sendable {
 
     public func start(onPathChange: @Sendable @escaping (NetworkPathStatus) -> Void) {
         stop()
+        self.isMonitoring = true
         let generation = self.generation
         source.start { [weak self] status in
             Task { @MainActor in
@@ -116,6 +118,7 @@ public final class PathMonitor: Sendable {
         generation += 1
         debounceTask?.cancel()
         debounceTask = nil
+        self.isMonitoring = false
         source.stop()
     }
 

@@ -134,6 +134,7 @@ final class FinishSyncingCoordinator {
     @ObservationIgnored private let drive: () async -> Void
     @ObservationIgnored private let setPacingMode: (TransferPacingMode) async -> Void
     @ObservationIgnored private let isConnected: () -> Bool
+    @ObservationIgnored private let isSiblingSustaining: () -> Bool
     @ObservationIgnored private let disconnect: () async -> Void
     @ObservationIgnored private let scheduling: any FinishSyncingScheduling
     @ObservationIgnored private let clock: any ObserverClock
@@ -151,6 +152,7 @@ final class FinishSyncingCoordinator {
         drive: @escaping () async -> Void,
         setPacingMode: @escaping (TransferPacingMode) async -> Void,
         isConnected: @escaping () -> Bool,
+        isSiblingSustaining: @escaping () -> Bool = { false },
         disconnect: @escaping () async -> Void,
         scheduling: any FinishSyncingScheduling = BGTaskSchedulerAdapter(),
         clock: any ObserverClock = SystemObserverClock(),
@@ -163,6 +165,7 @@ final class FinishSyncingCoordinator {
         self.drive = drive
         self.setPacingMode = setPacingMode
         self.isConnected = isConnected
+        self.isSiblingSustaining = isSiblingSustaining
         self.disconnect = disconnect
         self.scheduling = scheduling
         self.clock = clock
@@ -317,7 +320,11 @@ final class FinishSyncingCoordinator {
         handle.complete(success: success)
         await self.setPacingMode(.normal)
         self.isSustainingBackground = false
-        await self.disconnect()
+        if self.isSiblingSustaining() {
+            finishSyncingLog.info("finish-syncing: sibling sustain active; keeping tunnel connected")
+        } else {
+            await self.disconnect()
+        }
         self.isFinishing = false
     }
 

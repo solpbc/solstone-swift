@@ -297,7 +297,7 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
         await transport.disconnect()
     }
 
-    /// The LAN keepalive pings about twice a minute in the background and twice a second in the
+    /// The LAN keepalive pings every 18 s in the background and twice a second in the
     /// foreground, on the live connection and on one made while the app is already in the background.
     @MainActor
     func testKeepalivePingsLessOftenInTheBackgroundAndAtTheUsualCadenceInTheForeground() async throws {
@@ -314,12 +314,12 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
             onStageChange: { _ in }
         )
         let connectedInBackground = await fakeSession.keepaliveIntervals
-        XCTAssertEqual(connectedInBackground, [.seconds(30)])
+        XCTAssertEqual(connectedInBackground, [.seconds(18)])
 
         await transport.setInBackground(false)
         await transport.setInBackground(true)
         let afterRoundTrip = await fakeSession.keepaliveIntervals
-        XCTAssertEqual(afterRoundTrip, [.seconds(30), .milliseconds(500), .seconds(30)])
+        XCTAssertEqual(afterRoundTrip, [.seconds(18), .milliseconds(500), .seconds(18)])
 
         await transport.disconnect()
     }

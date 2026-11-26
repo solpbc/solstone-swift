@@ -274,8 +274,12 @@ final class TunnelManager {
             case .connected, .connecting, .disconnected:
                 self.lastFailedDial = nil
             }
+            if state != oldValue {
+                self.onStateChanged?(state)
+            }
         }
     }
+    @ObservationIgnored var onStateChanged: (@MainActor (TunnelState) -> Void)?
     /// The direct addresses the last dial tried when it reached none of them.
     private(set) var lastFailedDial: TriedAddresses?
     /// Peers that answered where the paired journal was expected, one per address, direct addresses
@@ -328,7 +332,8 @@ final class TunnelManager {
     @ObservationIgnored private var probeWatchdog: ProbeWatchdog
     @ObservationIgnored private var reconnectBackoff: ReconnectBackoff
     @ObservationIgnored private let healthyProbeInterval: Duration
-    @ObservationIgnored private let backgroundProbeInterval: Duration
+    @ObservationIgnored let backgroundProbeInterval: Duration
+    @ObservationIgnored var isBackgroundSustained: @MainActor () -> Bool
     @ObservationIgnored private var livenessProbeEpoch: UInt64?
     /// The last probe's answer, so an unchanged healthy answer is not logged every few seconds.
     @ObservationIgnored private var lastProbeAlive: Bool?
@@ -359,7 +364,8 @@ final class TunnelManager {
     @ObservationIgnored private var activeAttemptEpoch: UInt64?
     @ObservationIgnored private var activeAttemptPermit = PairingMutationPermit()
     @ObservationIgnored private var brokerWaitEpisode: BrokerWaitEpisode?
-    @ObservationIgnored private var scenePhase: TunnelScenePhase = .inactive
+    @ObservationIgnored private(set) var scenePhase: TunnelScenePhase = .inactive
+    @ObservationIgnored private(set) var hasReceivedScenePhase = false
     @ObservationIgnored private var telemetryCompleteness: AttemptTelemetryCompleteness = .unavailable
     @ObservationIgnored private var candidateTelemetry: [Int: CandidateAttemptTelemetry] = [:]
     @ObservationIgnored private var candidateEndpointByOrdinal: [Int: TransportEndpoint] = [:]
@@ -405,8 +411,9 @@ final class TunnelManager {
             activeInboundFailureLimit: 6
         ),
         // why: in the background nothing shows the connection, so a healthy line is probed
-        // about every 30 s instead of every 3 s; a failed probe keeps the watchdog's cadence.
-        backgroundProbeInterval: Duration = .seconds(30),
+        // every 18 s to stay inside the journal's 30 s active window; a failed probe keeps the watchdog's cadence.
+        backgroundProbeInterval: Duration = .seconds(18),
+        isBackgroundSustained: @escaping @MainActor () -> Bool = { false },
         random: @escaping @Sendable (ClosedRange<Double>) -> Double = { Double.random(in: $0) },
         activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
         diagnosticLog: DiagnosticLog? = nil,
@@ -442,6 +449,7 @@ final class TunnelManager {
         self.clock = clock
         self.healthyProbeInterval = probeWatchdogPolicy.healthyInterval
         self.backgroundProbeInterval = backgroundProbeInterval
+        self.isBackgroundSustained = isBackgroundSustained
         self.probeWatchdog = ProbeWatchdog(policy: probeWatchdogPolicy, random: random)
         // why: spl-swift prescribes the reconnect table; the app only schedules the chosen step.
         self.reconnectBackoff = ReconnectBackoff(schedule: .default, random: random)
@@ -521,6 +529,7 @@ final class TunnelManager {
 
     func receiveScenePhase(_ phase: TunnelScenePhase) {
         let prior = self.scenePhase
+        self.hasReceivedScenePhase = true
         self.scenePhase = phase
         if prior == .background, phase != .background {
             self.resumeForegroundProbe()
@@ -1451,6 +1460,18 @@ final class TunnelManager {
         await task.value
     }
 
+    private func canRedriveWaitingForHome(for reason: RedriveTrigger) -> Bool {
+        if self.scenePhase == .active {
+            return true
+        }
+        switch reason {
+        case .manual, .networkChanged:
+            return self.isBackgroundSustained()
+        case .foreground, .cadence:
+            return false
+        }
+    }
+
     private func performWaitingRedrive(reason: RedriveTrigger, redriveID: UInt64) async {
         defer {
             if self.waitingRedriveID == redriveID {
@@ -1459,7 +1480,7 @@ final class TunnelManager {
             }
         }
         guard case .waitingForHome = self.state else { return }
-        guard self.scenePhase == .active else { return }
+        guard self.canRedriveWaitingForHome(for: reason) else { return }
         self.cancelBrokerWaitCadence()
         self.cancelStage(.raceCandidates)
         self.markUnfinishedCandidates(.rerace)
@@ -1470,7 +1491,7 @@ final class TunnelManager {
         stalled?.cancel()
         await self.transport.disconnect()
         await stalled?.value
-        guard case .waitingForHome = self.state, self.scenePhase == .active else { return }
+        guard case .waitingForHome = self.state, self.canRedriveWaitingForHome(for: reason) else { return }
         self.diagnosticLog?.append(category: .tunnel, message: AppStrings.ios_presentation_tunnelmanager_n49(), detail: reason.label)
         self.consecutiveNotEntitled = 0
         await self.connect()
@@ -1671,6 +1692,10 @@ final class TunnelManager {
         self.lastHeardAt = nil
         await self.transport.disconnect()
         self.scheduleReconnect(for: tunnelError, epoch: epoch)
+    }
+
+    var isNetworkMonitoring: Bool {
+        self.pathMonitor.isMonitoring
     }
 
     func startNetworkMonitoring() {

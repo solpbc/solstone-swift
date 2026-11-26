@@ -12,6 +12,17 @@ nonisolated final class TransferDrainProgressTests: XCTestCase {
         )
     }
 
+    func testZeroQueuedWithInFlightUploadKeepsGoing() {
+        XCTAssertEqual(
+            evaluateDrainRound(self.input(previousTotal: 1, currentTotal: 0, inFlight: 1)),
+            .keepGoing(previousTotal: 0, stalledRounds: 0)
+        )
+        XCTAssertEqual(
+            evaluateDrainRound(self.input(previousTotal: 0, currentTotal: 0, inFlight: 1, stalledRounds: 1)),
+            .keepGoing(previousTotal: 0, stalledRounds: 0)
+        )
+    }
+
     func testProgressResetsPreviousAndStallCount() {
         XCTAssertEqual(
             evaluateDrainRound(self.input(previousTotal: 5, currentTotal: 3, stalledRounds: 1)),

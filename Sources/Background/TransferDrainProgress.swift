@@ -19,7 +19,7 @@ nonisolated enum DrainRoundDecision: Equatable, Sendable {
 }
 
 nonisolated func evaluateDrainRound(_ input: DrainRoundInput, stallLimit: Int = 2) -> DrainRoundDecision {
-    if input.currentTotal == 0 {
+    if input.currentTotal == 0 && input.inFlight == 0 {
         return .finished
     }
     if input.currentTotal < input.previousTotal {

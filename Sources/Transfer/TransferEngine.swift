@@ -582,7 +582,7 @@ actor TransferEngine {
         manifest: TransferManifest,
         equivalentObserverSegmentID: UUID? = nil,
         payloadFileURLs: [String: URL]
-    ) throws -> TransferEnqueueIfAbsentOutcome {
+    ) async throws -> TransferEnqueueIfAbsentOutcome {
         let ownership = try self.verifyEquivalentOwnership(
             expectedManifest: manifest,
             equivalentObserverSegmentID: equivalentObserverSegmentID,
@@ -590,16 +590,22 @@ actor TransferEngine {
         )
         switch ownership {
         case .ownedInQueued, .ownedInAttention:
+            await self.flushStatusUpdate()
             return .alreadyPresent
         case .notFound, .salvageOnly:
             break
         case .conflict, .stagingOnly:
             throw TransferEnqueueIfAbsentError.unverifiedOwnership(ownership)
         }
-        _ = try self.commitStagedResult(self.spool.stage(
-            manifest: manifest,
-            payloadFileURLs: payloadFileURLs
-        ))
+        _ = try self.commitStagedResult(
+            self.spool.stage(
+                manifest: manifest,
+                payloadFileURLs: payloadFileURLs
+            ),
+            scheduleWorkImmediately: false
+        )
+        await self.flushStatusUpdate()
+        self.scheduleWork()
         return .enqueued
     }
 
@@ -690,7 +696,10 @@ actor TransferEngine {
         }
     }
 
-    private func commitStagedResult(_ staged: TransferSpoolStageResult) throws -> TransferStoredItem {
+    private func commitStagedResult(
+        _ staged: TransferSpoolStageResult,
+        scheduleWorkImmediately: Bool = true
+    ) throws -> TransferStoredItem {
         for diagnostic in staged.recoveryDiagnostics {
             self.emitRecoveryDiagnostic(diagnostic)
         }
@@ -715,7 +724,9 @@ actor TransferEngine {
         )
         transferLog.notice("transfer item queued \(committed.manifest.itemID.uuidString, privacy: .public)")
         self.scheduleStatusUpdate(summary: "queued")
-        self.scheduleWork()
+        if scheduleWorkImmediately {
+            self.scheduleWork()
+        }
         return committed
     }
 
@@ -2652,22 +2663,17 @@ extension TransferEngine {
     }
 
     func flushStatusUpdate() async {
-        guard let snapshot = self.pendingStatusSnapshot else {
+        guard self.pendingStatusSnapshot != nil else {
             self.statusUpdateScheduled = false
             return
         }
-        self.pendingStatusSnapshot = nil
-        if let statusMirror = self.statusMirror {
-            await statusMirror.apply(snapshot: snapshot)
-        }
-        if self.pendingStatusSnapshot != nil {
-            Task {
-                try? await Task.sleep(for: transferStatusCoalescingDelay)
-                await self.flushStatusUpdate()
+        while let snapshot = self.pendingStatusSnapshot {
+            self.pendingStatusSnapshot = nil
+            if let statusMirror = self.statusMirror {
+                await statusMirror.apply(snapshot: snapshot)
             }
-        } else {
-            self.statusUpdateScheduled = false
         }
+        self.statusUpdateScheduled = false
     }
 
     func nextState(forEngineOutcome outcome: TransferDiagnosticOutcomeSummary) -> TransferRuntimeState {

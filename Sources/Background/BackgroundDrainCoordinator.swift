@@ -52,6 +52,7 @@ func driveUploadDrain(
         await transferEngine.kick()
     }
     await watchDrain?.drain()
+    await transferEngine.flushStatusUpdate()
 }
 
 @MainActor
@@ -81,14 +82,15 @@ func resumeShareImports(
 }
 
 /// Returns whether another background owner (location-Always sustain, an active
-/// continued-processing sync, or an active large-import upload) is already keeping
-/// the tunnel alive in the background.
+/// continued-processing sync, an active large-import upload, or phone-microphone audio)
+/// is already keeping the tunnel alive in the background.
 nonisolated func isBackgroundTunnelSustained(
     locationSustaining: Bool,
     finishSyncingActive: Bool,
-    importUploadActive: Bool = false
+    importUploadActive: Bool = false,
+    observerAudioSustaining: Bool = false
 ) -> Bool {
-    locationSustaining || finishSyncingActive || importUploadActive
+    locationSustaining || finishSyncingActive || importUploadActive || observerAudioSustaining
 }
 
 @MainActor
@@ -140,9 +142,10 @@ final class BackgroundDrainCoordinator {
 
         let initial = self.totals()
         let backlog = initial.failed + initial.pending
+        let initialInFlight = self.inFlight()
 
         // Outcome 3: disconnect-now - nothing to drain (or not connected, so driving cannot help).
-        guard self.isConnected(), backlog > 0 else {
+        guard self.isConnected(), backlog > 0 || initialInFlight > 0 else {
             await self.disconnect()
             return
         }

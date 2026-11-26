@@ -171,7 +171,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
         },
         probeInterval: Duration = .seconds(15),
-        backgroundProbeInterval: Duration = .seconds(30),
+        backgroundProbeInterval: Duration = .seconds(18),
         probeFailureThreshold: Int = 2,
         degradedInterval: Duration? = nil,
         activeInboundFailureLimit: Int? = nil,

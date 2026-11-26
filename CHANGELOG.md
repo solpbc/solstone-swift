@@ -12,6 +12,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
+- on iphone and ipad, while audio is on, the connection to your journal now stays open after you lock the screen or leave the app, so audio keeps reaching your journal and your journal keeps showing this device as connected. starting audio from control center or with the screen locked also connects to your journal, and when audio stops in the background while connected, the last stretch of audio reaches your journal before the connection closes. before, locking the screen closed the connection until you opened the app again.
 - on iphone and ipad, if you delete a screenshot from Photos while it is waiting to sync, the solstone app now drops it and removes its waiting copy on this device. before, a waiting screenshot could still go into your journal later.
 
 ## [2.0.14 (170)] - 2026-11-25
