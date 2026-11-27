@@ -6,9 +6,15 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.16 (172)] - 2026-11-27
+
 ### Added
 
-- on iphone and ipad, once your journal is updated too, exporting a copy from it saves straight to the folder you pick in Files and checks the saved file. saving keeps going briefly in the background while the system allows, and you can resume where it left off after a pause or connection drop.
+- on iphone and ipad, once your journal is up to date, a copy you export from it now saves straight to the folder you pick in Files, and the solstone app checks the saved file. saving keeps going in the background while the system allows, and you can resume where it left off after a pause or connection drop.
+
+### Fixed
+
+- on iphone and ipad, when the connection drops partway through a large import, the rest of the file now goes into your journal in smaller pieces from where your journal left off, then in larger ones again once your journal is receiving them quickly.
 
 ## [2.0.15 (171)] - 2026-11-26
 
