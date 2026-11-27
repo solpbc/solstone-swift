@@ -45,6 +45,10 @@ final class PhotosLibraryEngine {
     private(set) var lastPromptResult: ScreenshotsAccess?
     private(set) var lastError: String?
     @ObservationIgnored private var isUITestFixture = false
+    @ObservationIgnored private var isForegroundRunning = false
+    @ObservationIgnored private var hasPendingForeground = false
+    @ObservationIgnored private var isHandlingLibraryChange = false
+    @ObservationIgnored private var hasPendingLibraryChange = false
 
     @ObservationIgnored var isPaired: () -> Bool = { false }
 
@@ -156,6 +160,22 @@ final class PhotosLibraryEngine {
 
     func foreground() async {
         guard !self.isUITestFixture else { return }
+        if self.isForegroundRunning {
+            self.hasPendingForeground = true
+            return
+        }
+        self.isForegroundRunning = true
+        defer { self.isForegroundRunning = false }
+        while true {
+            self.hasPendingForeground = false
+            await self.runForegroundOnce()
+            if !self.hasPendingForeground || self.isUITestFixture {
+                break
+            }
+        }
+    }
+
+    private func runForegroundOnce() async {
         self.access = self.media.photosAccess()
         guard self.isPaired() else {
             self.capability = .unknown
@@ -259,6 +279,8 @@ final class PhotosLibraryEngine {
         self.capability = .unknown
         self.isScanning = false
         self.isSyncingCopies = false
+        self.hasPendingForeground = false
+        self.hasPendingLibraryChange = false
         self.scanChecked = 0
         self.scanTotal = 0
         self.journalSummary = nil
@@ -341,7 +363,27 @@ final class PhotosLibraryEngine {
 
     /// Handle an incremental PhotoKit change notification. Falls back cleanly to a
     /// full metadata rescan if the persistent change token expired.
+    ///
+    /// Re-entrant PhotoKit notifications (such as iCloud downloads triggered while
+    /// exporting copies) coalesce onto a single follow-up pass rather than firing
+    /// concurrent delta uploads against the same change token.
     func libraryChanged() async {
+        if self.isHandlingLibraryChange {
+            self.hasPendingLibraryChange = true
+            return
+        }
+        self.isHandlingLibraryChange = true
+        defer { self.isHandlingLibraryChange = false }
+        while true {
+            self.hasPendingLibraryChange = false
+            await self.runLibraryChangedOnce()
+            if !self.hasPendingLibraryChange {
+                break
+            }
+        }
+    }
+
+    private func runLibraryChangedOnce() async {
         guard self.store.document.enabled, !self.store.document.paused, self.isPaired() else { return }
         let access = self.media.photosAccess()
         guard access == .full else {

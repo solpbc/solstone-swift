@@ -786,4 +786,123 @@ final class PhotosLibraryTests: XCTestCase {
         XCTAssertEqual(snapshot.photos.total, 2)
         XCTAssertNotNil(snapshot.photos.last)
     }
+
+    func testConcurrentLibraryChangedAndForegroundCoalesceWithoutDuplicateDeltaStorms() async {
+        final class GatedTransport: PhotosLibraryTransport, @unchecked Sendable {
+            private let lock = NSLock()
+            var scanChangesStarted = 0
+            var maxConcurrentScanChanges = 0
+            private var inFlightScanChanges = 0
+            private var gateContinuation: CheckedContinuation<Void, Never>?
+            var statusCount = 0
+            var maxConcurrentStatus = 0
+            private var inFlightStatus = 0
+            private var statusGateContinuation: CheckedContinuation<Void, Never>?
+
+            func checkCapability() async -> Bool? { true }
+            func postScanStart(_ payload: PhotosScanStartPayload) async throws {}
+            func postScanBatch(_ payload: PhotosScanBatchPayload) async throws {}
+            func postScanFinish(_ payload: PhotosScanFinishPayload) async throws {}
+            func postStatus(_ payload: PhotosDeviceStatusPayload) async throws {
+                let shouldBlock: Bool = self.lock.withLock {
+                    self.statusCount += 1
+                    self.inFlightStatus += 1
+                    self.maxConcurrentStatus = max(self.maxConcurrentStatus, self.inFlightStatus)
+                    return self.statusCount == 1
+                }
+                if shouldBlock {
+                    await withCheckedContinuation { cont in
+                        self.lock.withLock { self.statusGateContinuation = cont }
+                    }
+                }
+                self.lock.withLock { self.inFlightStatus -= 1 }
+            }
+            func fetchWanted(limit: Int) async throws -> PhotosWantedResponse {
+                PhotosWantedResponse(paused: false, range: "all", wanted: [], remaining: 0)
+            }
+            func postCopy(_ payload: PhotosCopyUploadPayload) async throws {}
+
+            func postScanChanges(_ payload: PhotosScanChangesPayload) async throws {
+                let shouldBlock: Bool = self.lock.withLock {
+                    self.scanChangesStarted += 1
+                    self.inFlightScanChanges += 1
+                    self.maxConcurrentScanChanges = max(self.maxConcurrentScanChanges, self.inFlightScanChanges)
+                    return self.scanChangesStarted == 1
+                }
+                if shouldBlock {
+                    await withCheckedContinuation { cont in
+                        self.lock.withLock { self.gateContinuation = cont }
+                    }
+                }
+                self.lock.withLock { self.inFlightScanChanges -= 1 }
+            }
+
+            func releaseGate() {
+                let cont: CheckedContinuation<Void, Never>? = self.lock.withLock {
+                    let c = self.gateContinuation
+                    self.gateContinuation = nil
+                    return c
+                }
+                cont?.resume()
+            }
+
+            func releaseStatusGate() {
+                let cont: CheckedContinuation<Void, Never>? = self.lock.withLock {
+                    let c = self.statusGateContinuation
+                    self.statusGateContinuation = nil
+                    return c
+                }
+                cont?.resume()
+            }
+        }
+
+        let media = FakeMedia()
+        let row = self.makeRow(id: "asset-delta-1", cloudID: "cloud-delta-1", capturedAt: "2026-11-27T12:00:00Z")
+        media.changesResult = .delta(addedOrUpdated: [row], removedIDs: [], token: Data([2]))
+
+        let transport = GatedTransport()
+        let store = PhotosLibraryStore(fileURL: self.tempStoreURL())
+        store.document.everEnabled = true
+        store.document.enabled = true
+        store.document.scanComplete = true
+        store.document.changeToken = Data([1])
+        store.save()
+
+        let engine = PhotosLibraryEngine(
+            media: media,
+            store: store,
+            transport: transport
+        )
+        engine.isPaired = { true }
+
+        // Fire 5 overlapping libraryChanged notifications while the first postScanChanges is in flight.
+        let first = Task { await engine.libraryChanged() }
+        while transport.scanChangesStarted == 0 {
+            await Task.yield()
+        }
+        // Once the first delta commits, subsequent delta check sees no changes.
+        media.changesResult = .delta(addedOrUpdated: [], removedIDs: [], token: Data([3]))
+
+        let burst = (0..<4).map { _ in Task { await engine.libraryChanged() } }
+        for task in burst { await task.value }
+        transport.releaseGate()
+        await first.value
+
+        XCTAssertEqual(transport.maxConcurrentScanChanges, 1, "libraryChanged must serialize delta uploads")
+        XCTAssertEqual(transport.scanChangesStarted, 1, "coalesced bursts must not replay the same delta")
+        XCTAssertEqual(engine.document.changeToken, Data([3]))
+
+        // Fire 5 overlapping foreground() calls while the first postStatus is in flight.
+        let firstForeground = Task { await engine.foreground() }
+        while transport.statusCount == 0 {
+            await Task.yield()
+        }
+        let fgBurst = (0..<4).map { _ in Task { await engine.foreground() } }
+        for task in fgBurst { await task.value }
+        transport.releaseStatusGate()
+        await firstForeground.value
+
+        XCTAssertEqual(transport.maxConcurrentStatus, 1, "foreground must serialize status check-ins")
+        XCTAssertEqual(transport.statusCount, 2, "4 overlapping foreground calls must coalesce into one follow-up pass")
+    }
 }
