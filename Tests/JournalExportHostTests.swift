@@ -580,6 +580,695 @@ final class JournalExportHostTests: XCTestCase {
         XCTAssertEqual(failedHandle.lastTitle, AppStrings.ios_app_exportbgsystemstoppedtitle())
     }
 
+    private final class IOSAtomicOffsetBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var offset: Int64 = 0
+        private var triggered = false
+
+        func record(_ value: Int64) {
+            self.lock.withLock { self.offset = value }
+        }
+
+        func value() -> Int64 {
+            self.lock.withLock { self.offset }
+        }
+
+        func fireOnceAtOrAbove(_ threshold: Int64, offset value: Int64) -> Bool {
+            self.lock.withLock {
+                guard !self.triggered, value >= threshold else { return false }
+                self.triggered = true
+                self.offset = value
+                return true
+            }
+        }
+    }
+
+    private static func makeSyntheticData(count: Int, mul: Int, add: Int) -> Data {
+        var data = Data(count: count)
+        data.withUnsafeMutableBytes { raw in
+            guard let ptr = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            for i in 0..<count {
+                ptr[i] = UInt8((i &* mul &+ add) & 0xFF)
+            }
+        }
+        return data
+    }
+
+    func testSha256CancellationStopsPromptlyAndFreshSaveSucceeds() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ios-export-vc-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        // 1. Direct cooperative cancellation of sha256File on a physically written 16 MiB file.
+        let bigFile = folder.appendingPathComponent("phys-16m.part")
+        let sixteenMiB = 16 * 1024 * 1024
+        try Self.makeSyntheticData(count: sixteenMiB, mul: 37, add: 13).write(to: bigFile)
+
+        let directBox = IOSAtomicOffsetBox()
+        let cancelFlag = IOSExportCancellationFlag()
+        let directTask = Task.detached { () -> Result<String, Error> in
+            do {
+                let digest = try JournalExportTransferManager.sha256File(
+                    at: bigFile,
+                    shouldCancel: { cancelFlag.isCancelled },
+                    onChunkRead: { offset in
+                        directBox.record(offset)
+                        if offset >= 256 * 1024 {
+                            cancelFlag.cancel()
+                            try? FileManager.default.removeItem(at: bigFile)
+                        }
+                    }
+                )
+                return .success(digest)
+            } catch {
+                return .failure(error)
+            }
+        }
+        let directOutcome = await directTask.value
+        switch directOutcome {
+        case .success:
+            XCTFail("expected CancellationError when cancelled after first 256 KiB")
+        case .failure(let error):
+            XCTAssertTrue(error is CancellationError)
+        }
+        let observed = directBox.value()
+        XCTAssertLessThanOrEqual(observed, 512 * 1024)
+
+        // 2. Host cancel during verification preserves folder contents and allows a clean fresh save.
+        let payload = Self.makeSyntheticData(count: 4 * 1024 * 1024, mul: 19, add: 3)
+        let expectedSHA = Self.sha256Hex(payload)
+        let etag = "\"\(expectedSHA)\""
+        let exportID = "exp_ios_vc_1"
+        let server = try IOSLoopbackExportServer(payload: payload, etag: etag)
+        defer { server.stop() }
+
+        let existing = folder.appendingPathComponent("solstone-journal.zip")
+        let sentinel = Data("keep-existing-ios".utf8)
+        try sentinel.write(to: existing)
+
+        let verifyBox = IOSAtomicOffsetBox()
+        let enteredVerify = DispatchSemaphore(value: 0)
+        let cancelIssued = DispatchSemaphore(value: 0)
+        let manager = JournalExportTransferManager(
+            platformName: "ios",
+            prepareRequest: { _ in },
+            volumeSpaceProbe: { _ in 10 * 1024 * 1024 * 1024 },
+            onVerifyChunkRead: { offset in
+                if verifyBox.fireOnceAtOrAbove(256 * 1024, offset: offset) {
+                    enteredVerify.signal()
+                    _ = cancelIssued.wait(timeout: .now() + .seconds(5))
+                } else {
+                    verifyBox.record(offset)
+                }
+            }
+        )
+        let host = try XCTUnwrap(JournalImportHost(
+            entryURL: server.baseURL,
+            intake: ExportTestFakeIntake(),
+            exportTransferManager: manager,
+            exportLiveBaseURL: { server.baseURL },
+            exportTransportKind: { "local" },
+            exportFolderPicker: { folder }
+        ))
+
+        let cancelDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = enteredVerify.wait(timeout: .now() + .seconds(10))
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    _ = manager.cancel(exportID: exportID)
+                }
+            }
+            cancelIssued.signal()
+            cancelDone.signal()
+        }
+        defer { cancelIssued.signal() }
+
+        _ = try await self.send([
+            "type": "export.start",
+            "id": "ios-vc-1",
+            "export_id": exportID,
+            "download_path": "/app/export/api/ready/\(exportID)/download",
+            "filename": "solstone-journal.zip",
+            "size_bytes": payload.count,
+            "sha256": expectedSHA,
+            "etag": etag,
+        ], to: host)
+
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = cancelDone.wait(timeout: .now() + .seconds(10))
+                cont.resume()
+            }
+        }
+        let afterCancel = try await self.waitForPhase(manager, in: ["idle", "saved", "error"])
+        XCTAssertEqual(afterCancel.phase, "idle")
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(try Data(contentsOf: existing), sentinel)
+        let vcRead = verifyBox.value()
+        XCTAssertEqual(vcRead, 256 * 1024)
+
+        // Fresh save succeeds and publishes a non-colliding verified ZIP while preserving existing file.
+        _ = try await self.send([
+            "type": "export.start",
+            "id": "ios-vc-2",
+            "export_id": exportID,
+            "download_path": "/app/export/api/ready/\(exportID)/download",
+            "filename": "solstone-journal.zip",
+            "size_bytes": payload.count,
+            "sha256": expectedSHA,
+            "etag": etag,
+        ], to: host)
+        let saved = try await self.waitForPhase(manager, in: ["saved", "error"])
+        XCTAssertEqual(saved.phase, "saved")
+        XCTAssertTrue(saved.verified)
+        let published = folder.appendingPathComponent("solstone-journal (2).zip")
+        XCTAssertEqual(try Data(contentsOf: published), payload)
+        XCTAssertEqual(try Data(contentsOf: existing), sentinel)
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.hasSuffix(".part") } ?? []
+        XCTAssertTrue(leftovers.isEmpty)
+    }
+
+    func testRestartCreditsOnDiskPartialFromFirstAndLaterGenerationsUnderTightSpace() async throws {
+        let sixteenMiB = 16 * 1024 * 1024
+        let twelveMiB = 12 * 1024 * 1024
+        let fiveMiB: Int64 = 5 * 1024 * 1024
+        var payload = Data(count: sixteenMiB)
+        payload.withUnsafeMutableBytes { raw in
+            guard let ptr = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            for i in 0..<sixteenMiB {
+                ptr[i] = UInt8((i &* 43 &+ 5) & 0xFF)
+            }
+        }
+        let expectedSHA = Self.sha256Hex(payload)
+        let etag = "\"\(expectedSHA)\""
+
+        for (label, exportID, partFilename) in [
+            ("first_gen", "exp_ios_restart_g1", ".solstone-export-exp_ios_restart_g1-1.part"),
+            ("later_gen", "exp_ios_restart_g2", ".solstone-export-exp_ios_restart_g2-3.part"),
+        ] {
+            let server = try IOSLoopbackExportServer(payload: payload, etag: etag)
+            defer { server.stop() }
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ios-export-restart-\(label)-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+
+            let partial = folder.appendingPathComponent(partFilename)
+            try payload.prefix(twelveMiB).write(to: partial)
+
+            // 4 MiB free refuses with required_bytes == 5 MiB and keeps partial intact.
+            let tightManager = JournalExportTransferManager(
+                platformName: "ipados",
+                prepareRequest: { _ in },
+                volumeSpaceProbe: { _ in 4 * 1024 * 1024 }
+            )
+            let tightHost = try XCTUnwrap(JournalImportHost(
+                entryURL: server.baseURL,
+                intake: ExportTestFakeIntake(),
+                exportTransferManager: tightManager,
+                exportLiveBaseURL: { server.baseURL },
+                exportTransportKind: { "local" },
+                exportFolderPicker: { folder }
+            ))
+            let refused = try await self.send([
+                "type": "export.start",
+                "id": "tight-\(label)",
+                "export_id": exportID,
+                "download_path": "/app/export/api/ready/\(exportID)/download",
+                "filename": "solstone-journal.zip",
+                "size_bytes": sixteenMiB,
+                "sha256": expectedSHA,
+                "etag": etag,
+            ], to: tightHost)
+            XCTAssertEqual(refused["phase"] as? String, "error")
+            XCTAssertEqual(refused["error_code"] as? String, "insufficient_device_space")
+            XCTAssertEqual((refused["required_bytes"] as? NSNumber)?.int64Value, fiveMiB)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: partial.path))
+            XCTAssertEqual(server.recordedRequests().count, 0)
+
+            // Fresh manager with exactly 5 MiB free credits the 12 MiB partial and resumes via Range + If-Range.
+            let freshManager = JournalExportTransferManager(
+                platformName: "ipados",
+                prepareRequest: { _ in },
+                volumeSpaceProbe: { _ in fiveMiB }
+            )
+            let freshHost = try XCTUnwrap(JournalImportHost(
+                entryURL: server.baseURL,
+                intake: ExportTestFakeIntake(),
+                exportTransferManager: freshManager,
+                exportLiveBaseURL: { server.baseURL },
+                exportTransportKind: { "local" },
+                exportFolderPicker: { folder }
+            ))
+            _ = try await self.send([
+                "type": "export.start",
+                "id": "resume-\(label)",
+                "export_id": exportID,
+                "download_path": "/app/export/api/ready/\(exportID)/download",
+                "filename": "solstone-journal.zip",
+                "size_bytes": sixteenMiB,
+                "sha256": expectedSHA,
+                "etag": etag,
+            ], to: freshHost)
+
+            let saved = try await self.waitForPhase(freshManager, in: ["saved", "error"])
+            XCTAssertEqual(saved.phase, "saved", "case \(label) failed: \(String(describing: saved.errorCode))")
+            XCTAssertTrue(saved.verified)
+            let outURL = folder.appendingPathComponent("solstone-journal.zip")
+            XCTAssertEqual(try Data(contentsOf: outURL), payload)
+            let reqs = server.recordedRequests()
+            XCTAssertEqual(reqs.count, 1)
+            XCTAssertEqual(reqs.first?.range, "bytes=\(twelveMiB)-")
+            XCTAssertEqual(reqs.first?.ifRange, etag)
+            let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.hasSuffix(".part") } ?? []
+            XCTAssertTrue(leftovers.isEmpty)
+        }
+    }
+
+    func testFullLengthPartialProbesLiveEligibilityVerifiesLocallyAndRespectsErasure() async throws {
+        let size = 4 * 1024 * 1024
+        let payload = Self.makeSyntheticData(count: size, mul: 53, add: 11)
+        let expectedSHA = Self.sha256Hex(payload)
+        let etag = "\"\(expectedSHA)\""
+
+        // 1. Live eligible full-length partial (quit during verification): 1-byte Range/If-Range probe,
+        //    local SHA-256 verification, publish under 1 MiB headroom (no full refetch).
+        do {
+            let server = try IOSLoopbackExportServer(payload: payload, etag: etag)
+            defer { server.stop() }
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ios-exp-fullpart-ok-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+
+            let fullPart = folder.appendingPathComponent(".solstone-export-exp_full_ios_1-2.part")
+            try payload.write(to: fullPart)
+
+            let manager = JournalExportTransferManager(
+                platformName: "ipados",
+                prepareRequest: { _ in },
+                volumeSpaceProbe: { _ in 1 * 1024 * 1024 }
+            )
+            let host = try XCTUnwrap(JournalImportHost(
+                entryURL: server.baseURL,
+                intake: ExportTestFakeIntake(),
+                exportTransferManager: manager,
+                exportLiveBaseURL: { server.baseURL },
+                exportTransportKind: { "local" },
+                exportFolderPicker: { folder }
+            ))
+            _ = try await self.send([
+                "type": "export.start",
+                "id": "ios-full-ok",
+                "export_id": "exp_full_ios_1",
+                "download_path": "/app/export/api/ready/exp_full_ios_1/download",
+                "filename": "solstone-journal.zip",
+                "size_bytes": size,
+                "sha256": expectedSHA,
+                "etag": etag,
+            ], to: host)
+
+            let saved = try await self.waitForPhase(manager, in: ["saved", "error"])
+            XCTAssertEqual(saved.phase, "saved")
+            XCTAssertTrue(saved.verified)
+            XCTAssertEqual(try Data(contentsOf: folder.appendingPathComponent("solstone-journal.zip")), payload)
+            let reqs = server.recordedRequests()
+            XCTAssertEqual(reqs.count, 1)
+            XCTAssertEqual(reqs.first?.range, "bytes=\(size - 1)-\(size - 1)")
+            XCTAssertEqual(reqs.first?.ifRange, etag)
+            let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.hasSuffix(".part") } ?? []
+            XCTAssertTrue(leftovers.isEmpty)
+        }
+
+        // 2. Full-length partial invalidated by Trash erasure (410): must delete partial and never publish.
+        do {
+            let server = try IOSLoopbackExportServer(
+                payload: payload,
+                etag: etag,
+                fixedStatus: 410,
+                fixedBody: Data(#"{"code":"export_invalidated_by_erasure"}"#.utf8)
+            )
+            defer { server.stop() }
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ios-exp-fullpart-erased-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+
+            let fullPart = folder.appendingPathComponent(".solstone-export-exp_full_ios_2-1.part")
+            try payload.write(to: fullPart)
+
+            let manager = JournalExportTransferManager(
+                platformName: "ios",
+                prepareRequest: { _ in },
+                volumeSpaceProbe: { _ in 1 * 1024 * 1024 }
+            )
+            let host = try XCTUnwrap(JournalImportHost(
+                entryURL: server.baseURL,
+                intake: ExportTestFakeIntake(),
+                exportTransferManager: manager,
+                exportLiveBaseURL: { server.baseURL },
+                exportTransportKind: { "local" },
+                exportFolderPicker: { folder }
+            ))
+            _ = try await self.send([
+                "type": "export.start",
+                "id": "ios-full-erased",
+                "export_id": "exp_full_ios_2",
+                "download_path": "/app/export/api/ready/exp_full_ios_2/download",
+                "filename": "solstone-journal.zip",
+                "size_bytes": size,
+                "sha256": expectedSHA,
+                "etag": etag,
+            ], to: host)
+
+            let failed = try await self.waitForPhase(manager, in: ["error", "saved"])
+            XCTAssertEqual(failed.phase, "error")
+            XCTAssertEqual(failed.errorCode, "export_invalidated_by_erasure")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("solstone-journal.zip").path))
+            let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.hasSuffix(".part") } ?? []
+            XCTAssertTrue(leftovers.isEmpty)
+        }
+    }
+
+    func testAdoptPartialPreservesSourceOnFailedRenameAndNeverDeletesNonRegularItems() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ios-exp-adopt-safe-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let exportID = "exp_ios_adopt_1"
+        let preferred = folder.appendingPathComponent(".solstone-export-\(exportID)-2.part")
+        let staleRegular = folder.appendingPathComponent(".solstone-export-\(exportID)-1.part")
+        let target = folder.appendingPathComponent(".solstone-export-\(exportID)-3.part")
+        let matchingDir = folder.appendingPathComponent(".solstone-export-\(exportID)-10.part")
+        let externalFile = folder.appendingPathComponent("keep-outside.txt")
+        let matchingSymlink = folder.appendingPathComponent(".solstone-export-\(exportID)-9.part")
+
+        let preferredBytes = Data("preferred-partial-bytes".utf8)
+        try preferredBytes.write(to: preferred)
+        try Data("stale-old".utf8).write(to: staleRegular)
+        try FileManager.default.createDirectory(at: matchingDir, withIntermediateDirectories: true)
+        try Data("outside-sentinel".utf8).write(to: externalFile)
+        try FileManager.default.createSymbolicLink(at: matchingSymlink, withDestinationURL: externalFile)
+
+        let adopted = JournalExportTransferManager.adoptOrCleanExistingPartials(
+            in: folder,
+            exportID: exportID,
+            preferredSource: preferred,
+            targetPartURL: target,
+            renameFile: { _, _ in false }
+        )
+
+        XCTAssertEqual(adopted.lastPathComponent, preferred.lastPathComponent)
+        XCTAssertEqual(try Data(contentsOf: preferred), preferredBytes)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleRegular.path))
+        var dirStat = stat()
+        XCTAssertTrue(matchingDir.path.withCString { Darwin.lstat($0, &dirStat) } == 0 && (dirStat.st_mode & S_IFMT) == S_IFDIR)
+        var linkStat = stat()
+        XCTAssertTrue(matchingSymlink.path.withCString { Darwin.lstat($0, &linkStat) } == 0 && (linkStat.st_mode & S_IFMT) == S_IFLNK)
+        XCTAssertEqual(try Data(contentsOf: externalFile), Data("outside-sentinel".utf8))
+    }
+
+    func testFolderPickerPresentsDocumentPickerAndRoutesPickAndCancel() async throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let rootVC = UIViewController()
+        window.rootViewController = rootVC
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+
+        let chosenFolder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ios-picker-proof-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: chosenFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: chosenFolder) }
+
+        // 1. Accept path: real UIDocumentPickerViewController presented over rootVC delivers chosen folder.
+        let picker = JournalExportFolderPicker()
+        let pickTask = Task { @MainActor in
+            await picker.present(over: rootVC)
+        }
+        var presented: UIDocumentPickerViewController?
+        for _ in 0..<40 {
+            if let vc = rootVC.presentedViewController as? UIDocumentPickerViewController {
+                presented = vc
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let docPicker = try XCTUnwrap(presented, "expected UIDocumentPickerViewController to be presented")
+        XCTAssertFalse(docPicker.allowsMultipleSelection)
+        picker.documentPicker(docPicker, didPickDocumentsAt: [chosenFolder])
+        let pickedURL = await pickTask.value
+        XCTAssertEqual(pickedURL, chosenFolder)
+        docPicker.dismiss(animated: false)
+        try await Task.sleep(for: .milliseconds(50))
+
+        // 2. Cancel path: cancelling the real document picker returns nil cleanly.
+        let picker2 = JournalExportFolderPicker()
+        let cancelTask = Task { @MainActor in
+            await picker2.present(over: rootVC)
+        }
+        var presented2: UIDocumentPickerViewController?
+        for _ in 0..<40 {
+            if let vc = rootVC.presentedViewController as? UIDocumentPickerViewController {
+                presented2 = vc
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let docPicker2 = try XCTUnwrap(presented2, "expected second UIDocumentPickerViewController to be presented")
+        picker2.documentPickerWasCancelled(docPicker2)
+        let cancelledURL = await cancelTask.value
+        XCTAssertNil(cancelledURL)
+        docPicker2.dismiss(animated: false)
+    }
+
+    func testFullLengthPartialHandlesRangeIgnoring200ForSameChangedAndAbsentETag() async throws {
+        // 1. 16 MiB valid full partial + Range-ignoring 200 with SAME strong ETag:
+        //    body cancelled at headers, local SHA-256 verified, published under 1 MiB headroom.
+        do {
+            let size = 16 * 1024 * 1024
+            let payload = Self.makeSyntheticData(count: size, mul: 59, add: 17)
+            let expectedSHA = Self.sha256Hex(payload)
+            let etag = "\"\(expectedSHA)\""
+            let server = try IOSLoopbackExportServer(
+                payload: payload,
+                etag: etag,
+                ignoreRangeWithETag: .some(etag)
+            )
+            defer { server.stop() }
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ios-exp-r200-same-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+
+            try payload.write(to: folder.appendingPathComponent(".solstone-export-exp_ios_r200_same-1.part"))
+
+            let manager = JournalExportTransferManager(
+                platformName: "ipados",
+                prepareRequest: { _ in },
+                volumeSpaceProbe: { _ in 1 * 1024 * 1024 }
+            )
+            let host = try XCTUnwrap(JournalImportHost(
+                entryURL: server.baseURL,
+                intake: ExportTestFakeIntake(),
+                exportTransferManager: manager,
+                exportLiveBaseURL: { server.baseURL },
+                exportTransportKind: { "local" },
+                exportFolderPicker: { folder }
+            ))
+            _ = try await self.send([
+                "type": "export.start",
+                "id": "ios-r200-same",
+                "export_id": "exp_ios_r200_same",
+                "download_path": "/app/export/api/ready/exp_ios_r200_same/download",
+                "filename": "solstone-journal.zip",
+                "size_bytes": size,
+                "sha256": expectedSHA,
+                "etag": etag,
+            ], to: host)
+
+            let saved = try await self.waitForPhase(manager, in: ["saved", "error"])
+            XCTAssertEqual(saved.phase, "saved")
+            XCTAssertTrue(saved.verified)
+            XCTAssertEqual(try Data(contentsOf: folder.appendingPathComponent("solstone-journal.zip")), payload)
+            let reqs = server.recordedRequests()
+            XCTAssertEqual(reqs.count, 1)
+            XCTAssertEqual(reqs.first?.range, "bytes=\(size - 1)-\(size - 1)")
+            XCTAssertLessThan(server.totalBodyBytesSent(), 1 * 1024 * 1024)
+            let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.hasSuffix(".part") } ?? []
+            XCTAssertTrue(leftovers.isEmpty)
+        }
+
+        // 2. Corrupt full partial + Range-ignoring 200 with SAME strong ETag:
+        //    local SHA-256 still catches corruption, deletes partial, never publishes.
+        do {
+            let size = 4 * 1024 * 1024
+            let payload = Self.makeSyntheticData(count: size, mul: 61, add: 19)
+            let expectedSHA = Self.sha256Hex(payload)
+            let etag = "\"\(expectedSHA)\""
+            var corrupt = payload
+            corrupt[1024] ^= 0xFF
+            let server = try IOSLoopbackExportServer(
+                payload: payload,
+                etag: etag,
+                ignoreRangeWithETag: .some(etag)
+            )
+            defer { server.stop() }
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ios-exp-r200-corrupt-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+
+            try corrupt.write(to: folder.appendingPathComponent(".solstone-export-exp_ios_r200_bad-1.part"))
+
+            let manager = JournalExportTransferManager(
+                platformName: "ios",
+                prepareRequest: { _ in },
+                volumeSpaceProbe: { _ in 1 * 1024 * 1024 }
+            )
+            let host = try XCTUnwrap(JournalImportHost(
+                entryURL: server.baseURL,
+                intake: ExportTestFakeIntake(),
+                exportTransferManager: manager,
+                exportLiveBaseURL: { server.baseURL },
+                exportTransportKind: { "local" },
+                exportFolderPicker: { folder }
+            ))
+            _ = try await self.send([
+                "type": "export.start",
+                "id": "ios-r200-bad",
+                "export_id": "exp_ios_r200_bad",
+                "download_path": "/app/export/api/ready/exp_ios_r200_bad/download",
+                "filename": "solstone-journal.zip",
+                "size_bytes": size,
+                "sha256": expectedSHA,
+                "etag": etag,
+            ], to: host)
+
+            let failed = try await self.waitForPhase(manager, in: ["error", "saved"])
+            XCTAssertEqual(failed.phase, "error")
+            XCTAssertEqual(failed.errorCode, "checksum_mismatch")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("solstone-journal.zip").path))
+            XCTAssertLessThan(server.totalBodyBytesSent(), 1 * 1024 * 1024)
+            let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.hasSuffix(".part") } ?? []
+            XCTAssertTrue(leftovers.isEmpty)
+        }
+
+        // 3. Full partial + Range-ignoring 200 with CHANGED strong ETag or WEAK ETag:
+        //    cancelled at headers without downloading full archive, removes partial, fails export_copy_unconfirmed.
+        for (label, serverETag) in [
+            ("changed", "\"different-export-etag\""),
+            ("weak", "W/\"same-weak-etag\""),
+        ] {
+            let size = 16 * 1024 * 1024
+            let payload = Self.makeSyntheticData(count: size, mul: 67, add: 23)
+            let expectedSHA = Self.sha256Hex(payload)
+            let expectedETag = (label == "weak") ? "\"same-weak-etag\"" : "\"\(expectedSHA)\""
+            let server = try IOSLoopbackExportServer(
+                payload: payload,
+                etag: expectedETag,
+                ignoreRangeWithETag: .some(serverETag)
+            )
+            defer { server.stop() }
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ios-exp-r200-\(label)-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+
+            let exportID = "exp_ios_r200_\(label)"
+            try payload.write(to: folder.appendingPathComponent(".solstone-export-\(exportID)-2.part"))
+
+            let manager = JournalExportTransferManager(
+                platformName: "ipados",
+                prepareRequest: { _ in },
+                volumeSpaceProbe: { _ in 1 * 1024 * 1024 }
+            )
+            let host = try XCTUnwrap(JournalImportHost(
+                entryURL: server.baseURL,
+                intake: ExportTestFakeIntake(),
+                exportTransferManager: manager,
+                exportLiveBaseURL: { server.baseURL },
+                exportTransportKind: { "local" },
+                exportFolderPicker: { folder }
+            ))
+            _ = try await self.send([
+                "type": "export.start",
+                "id": "ios-r200-\(label)",
+                "export_id": exportID,
+                "download_path": "/app/export/api/ready/\(exportID)/download",
+                "filename": "solstone-journal.zip",
+                "size_bytes": size,
+                "sha256": expectedSHA,
+                "etag": expectedETag,
+            ], to: host)
+
+            let failed = try await self.waitForPhase(manager, in: ["error", "saved"])
+            XCTAssertEqual(failed.phase, "error")
+            XCTAssertEqual(failed.errorCode, "export_copy_unconfirmed")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("solstone-journal.zip").path))
+            XCTAssertLessThan(server.totalBodyBytesSent(), 1 * 1024 * 1024)
+            let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.hasSuffix(".part") } ?? []
+            XCTAssertTrue(leftovers.isEmpty)
+        }
+
+        // 4. Full partial + Range-ignoring 200 with ABSENT ETag:
+        //    streams live 200 copy from byte 0, verifies SHA-256, and publishes verified live bytes.
+        do {
+            let size = 4 * 1024 * 1024
+            let payload = Self.makeSyntheticData(count: size, mul: 71, add: 29)
+            let expectedSHA = Self.sha256Hex(payload)
+            let etag = "\"\(expectedSHA)\""
+            var stalePartial = payload
+            stalePartial[0] ^= 0xAA
+            let server = try IOSLoopbackExportServer(
+                payload: payload,
+                etag: etag,
+                ignoreRangeWithETag: .some(nil)
+            )
+            defer { server.stop() }
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ios-exp-r200-absent-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+
+            try stalePartial.write(to: folder.appendingPathComponent(".solstone-export-exp_ios_r200_absent-1.part"))
+
+            let manager = JournalExportTransferManager(
+                platformName: "ios",
+                prepareRequest: { _ in },
+                volumeSpaceProbe: { _ in 1 * 1024 * 1024 }
+            )
+            let host = try XCTUnwrap(JournalImportHost(
+                entryURL: server.baseURL,
+                intake: ExportTestFakeIntake(),
+                exportTransferManager: manager,
+                exportLiveBaseURL: { server.baseURL },
+                exportTransportKind: { "local" },
+                exportFolderPicker: { folder }
+            ))
+            _ = try await self.send([
+                "type": "export.start",
+                "id": "ios-r200-absent",
+                "export_id": "exp_ios_r200_absent",
+                "download_path": "/app/export/api/ready/exp_ios_r200_absent/download",
+                "filename": "solstone-journal.zip",
+                "size_bytes": size,
+                "sha256": expectedSHA,
+                "etag": etag,
+            ], to: host)
+
+            let saved = try await self.waitForPhase(manager, in: ["saved", "error"])
+            XCTAssertEqual(saved.phase, "saved")
+            XCTAssertTrue(saved.verified)
+            XCTAssertEqual(try Data(contentsOf: folder.appendingPathComponent("solstone-journal.zip")), payload)
+            XCTAssertEqual(server.totalBodyBytesSent(), size)
+            let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.filter { $0.hasSuffix(".part") } ?? []
+            XCTAssertTrue(leftovers.isEmpty)
+        }
+    }
+
     // MARK: - Helpers
 
     private func send(_ message: [String: Any], to host: JournalImportHost) async throws -> [String: Any] {
@@ -674,7 +1363,8 @@ private final class IOSLoopbackExportServer: @unchecked Sendable {
     private let truncateFirstAttemptAt: Int?
     private let fixedStatus: Int?
     private let fixedBody: Data
-    private let state = OSAllocatedUnfairLock(initialState: (stopped: false, attempts: 0, requests: [RequestRecord]()))
+    private let ignoreRangeWithETag: String??
+    private let state = OSAllocatedUnfairLock(initialState: (stopped: false, attempts: 0, bodyBytesSent: 0, requests: [RequestRecord]()))
 
     init(
         payload: Data,
@@ -682,7 +1372,8 @@ private final class IOSLoopbackExportServer: @unchecked Sendable {
         response206ETag: String? = nil,
         truncateFirstAttemptAt: Int? = nil,
         fixedStatus: Int? = nil,
-        fixedBody: Data = Data()
+        fixedBody: Data = Data(),
+        ignoreRangeWithETag: String?? = nil
     ) throws {
         self.payload = payload
         self.etag = etag
@@ -690,6 +1381,7 @@ private final class IOSLoopbackExportServer: @unchecked Sendable {
         self.truncateFirstAttemptAt = truncateFirstAttemptAt
         self.fixedStatus = fixedStatus
         self.fixedBody = fixedBody
+        self.ignoreRangeWithETag = ignoreRangeWithETag
 
         let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw POSIXError(.EIO) }
@@ -736,10 +1428,16 @@ private final class IOSLoopbackExportServer: @unchecked Sendable {
         self.state.withLock { $0.requests }
     }
 
+    func totalBodyBytesSent() -> Int {
+        self.state.withLock { $0.bodyBytesSent }
+    }
+
     private func acceptLoop() {
         while !self.state.withLock({ $0.stopped }) {
             let clientFD = Darwin.accept(self.listenFD, nil, nil)
             if clientFD < 0 { break }
+            var noSigPipe: Int32 = 1
+            Darwin.setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             DispatchQueue.global(qos: .userInitiated).async {
                 self.handleClient(fd: clientFD)
                 Darwin.close(clientFD)
@@ -782,34 +1480,51 @@ private final class IOSLoopbackExportServer: @unchecked Sendable {
         }
 
         let total = self.payload.count
+        if let ignoreETag = self.ignoreRangeWithETag {
+            var sndBuf: Int32 = 65_536
+            Darwin.setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sndBuf, socklen_t(MemoryLayout<Int32>.size))
+            let etagLine = ignoreETag.map { "ETag: \($0)\r\n" } ?? ""
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: \(total)\r\n\(etagLine)Connection: close\r\n\r\n"
+            _ = Self.writeAll(fd: fd, data: Data(head.utf8))
+            usleep(20_000)
+            let sent = Self.writeAll(fd: fd, data: self.payload)
+            self.state.withLock { $0.bodyBytesSent += sent }
+            return
+        }
         if let range = headers["range"], range.hasPrefix("bytes="), headers["if-range"] == self.etag {
             let spec = range.dropFirst(6)
             let start = Int(spec.split(separator: "-").first ?? "0") ?? 0
             let slice = self.payload[start..<total]
             let head = "HTTP/1.1 206 Partial Content\r\nContent-Type: application/zip\r\nContent-Length: \(slice.count)\r\nContent-Range: bytes \(start)-\(total - 1)/\(total)\r\nETag: \(self.response206ETag)\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
-            Self.writeAll(fd: fd, data: Data(head.utf8))
-            Self.writeAll(fd: fd, data: Data(slice))
+            _ = Self.writeAll(fd: fd, data: Data(head.utf8))
+            let sent = Self.writeAll(fd: fd, data: Data(slice))
+            self.state.withLock { $0.bodyBytesSent += sent }
             return
         }
 
         let head = "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: \(total)\r\nETag: \(self.etag)\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
-        Self.writeAll(fd: fd, data: Data(head.utf8))
+        _ = Self.writeAll(fd: fd, data: Data(head.utf8))
         if attempt == 1, let cut = self.truncateFirstAttemptAt, cut < total {
-            Self.writeAll(fd: fd, data: self.payload.prefix(cut))
+            let sent = Self.writeAll(fd: fd, data: self.payload.prefix(cut))
+            self.state.withLock { $0.bodyBytesSent += sent }
         } else {
-            Self.writeAll(fd: fd, data: self.payload)
+            let sent = Self.writeAll(fd: fd, data: self.payload)
+            self.state.withLock { $0.bodyBytesSent += sent }
         }
     }
 
-    private static func writeAll(fd: Int32, data: Data) {
+    @discardableResult
+    private static func writeAll(fd: Int32, data: Data) -> Int {
         data.withUnsafeBytes { raw in
-            guard let base = raw.baseAddress else { return }
+            guard let base = raw.baseAddress else { return 0 }
             var sent = 0
             while sent < raw.count {
-                let n = Darwin.write(fd, base.advanced(by: sent), raw.count - sent)
+                let chunkLen = min(65_536, raw.count - sent)
+                let n = Darwin.write(fd, base.advanced(by: sent), chunkLen)
                 if n <= 0 { break }
                 sent += n
             }
+            return sent
         }
     }
 }

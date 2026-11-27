@@ -167,10 +167,75 @@ nonisolated enum JournalExportVolumeSpace {
         return nil
     }
 
-    static func requiredBytes(for exportSizeBytes: Int64) -> Int64 {
-        let headroom = min(Int64(64 * 1024 * 1024), max(Int64(1 * 1024 * 1024), exportSizeBytes / 100))
-        let (sum, overflow) = exportSizeBytes.addingReportingOverflow(headroom)
+    static func headroomBytes(for exportSizeBytes: Int64) -> Int64 {
+        min(Int64(64 * 1024 * 1024), max(Int64(1 * 1024 * 1024), exportSizeBytes / 100))
+    }
+
+    static func requiredBytes(for exportSizeBytes: Int64, existingPartialBytes: Int64 = 0) -> Int64 {
+        let credited = min(max(0, existingPartialBytes), max(0, exportSizeBytes))
+        let remaining = max(0, exportSizeBytes - credited)
+        let headroom = Self.headroomBytes(for: exportSizeBytes)
+        let (sum, overflow) = remaining.addingReportingOverflow(headroom)
         return overflow ? Int64.max : sum
+    }
+}
+
+/// Thread-safe cooperative cancellation flag shared between `@MainActor` control
+/// paths and background file I/O / SHA-256 verification loops.
+nonisolated final class IOSExportCancellationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    func cancel() {
+        self.lock.lock()
+        self.cancelled = true
+        self.lock.unlock()
+    }
+
+    var isCancelled: Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.cancelled
+    }
+}
+
+/// Serializes final destination publication against cancellation and superseding
+/// attempts so a cancelled or stale worker can never publish or remove a newer save.
+nonisolated final class IOSExportPublishGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var activeGeneration: UInt64 = 0
+
+    func setActiveGeneration(_ generation: UInt64) {
+        self.lock.lock()
+        self.activeGeneration = generation
+        self.lock.unlock()
+    }
+
+    func invalidateIfCurrent(_ generation: UInt64) {
+        self.lock.lock()
+        if self.activeGeneration == generation {
+            self.activeGeneration = 0
+        }
+        self.lock.unlock()
+    }
+
+    func invalidateAll() {
+        self.lock.lock()
+        self.activeGeneration = 0
+        self.lock.unlock()
+    }
+
+    func runIfActive<T>(
+        generation: UInt64,
+        cancelFlag: IOSExportCancellationFlag,
+        _ body: () throws -> T
+    ) throws -> T {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        guard self.activeGeneration == generation, !cancelFlag.isCancelled, !Task.isCancelled else {
+            throw CancellationError()
+        }
+        return try body()
     }
 }
 
@@ -185,11 +250,13 @@ nonisolated final class IOSExportStreamDelegate: NSObject, URLSessionDataDelegat
     private let lock = NSCondition()
     private let highWaterBytes: Int
     private let lowWaterBytes: Int
+    private let shouldCancelAtHeaders: (@Sendable (HTTPURLResponse) -> Bool)?
 
     private var attachedTask: URLSessionDataTask?
     private var responseContinuation: CheckedContinuation<(HTTPURLResponse, IOSBoundedExportStream), Error>?
     private var pendingResponse: HTTPURLResponse?
     private var deliveredResponse = false
+    private var cancelledAtHeaders = false
 
     private var chunks: [Data] = []
     private var chunkHead = 0
@@ -203,10 +270,12 @@ nonisolated final class IOSExportStreamDelegate: NSObject, URLSessionDataDelegat
 
     init(
         highWaterBytes: Int = IOSExportStreamDelegate.defaultHighWaterBytes,
-        lowWaterBytes: Int = IOSExportStreamDelegate.defaultLowWaterBytes
+        lowWaterBytes: Int = IOSExportStreamDelegate.defaultLowWaterBytes,
+        shouldCancelAtHeaders: (@Sendable (HTTPURLResponse) -> Bool)? = nil
     ) {
         self.highWaterBytes = max(64 * 1024, highWaterBytes)
         self.lowWaterBytes = max(16 * 1024, min(lowWaterBytes, highWaterBytes / 2))
+        self.shouldCancelAtHeaders = shouldCancelAtHeaders
     }
 
     var maxBufferedBytes: Int {
@@ -229,16 +298,16 @@ nonisolated final class IOSExportStreamDelegate: NSObject, URLSessionDataDelegat
                     continuation.resume(throwing: CancellationError())
                     return
                 }
-                if let error = self.completionError {
-                    self.lock.unlock()
-                    continuation.resume(throwing: error)
-                    return
-                }
                 if let response = self.pendingResponse {
                     self.pendingResponse = nil
                     self.deliveredResponse = true
                     self.lock.unlock()
                     continuation.resume(returning: (response, stream))
+                    return
+                }
+                if let error = self.completionError {
+                    self.lock.unlock()
+                    continuation.resume(throwing: error)
                     return
                 }
                 if self.isCompleted {
@@ -344,11 +413,16 @@ nonisolated final class IOSExportStreamDelegate: NSObject, URLSessionDataDelegat
             return
         }
         let stream = IOSBoundedExportStream(delegate: self)
+        let cancelBody = self.shouldCancelAtHeaders?(http) == true
         self.lock.lock()
         if self.isCancelled {
             self.lock.unlock()
             completionHandler(.cancel)
             return
+        }
+        if cancelBody {
+            self.cancelledAtHeaders = true
+            self.isCompleted = true
         }
         let cont = self.responseContinuation
         self.responseContinuation = nil
@@ -359,7 +433,7 @@ nonisolated final class IOSExportStreamDelegate: NSObject, URLSessionDataDelegat
         }
         self.lock.unlock()
         cont?.resume(returning: (http, stream))
-        completionHandler(.allow)
+        completionHandler(cancelBody ? .cancel : .allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
@@ -403,6 +477,12 @@ nonisolated final class IOSExportStreamDelegate: NSObject, URLSessionDataDelegat
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        self.lock.lock()
+        let wasHeaderCancel = self.cancelledAtHeaders
+        self.lock.unlock()
+        if wasHeaderCancel {
+            return
+        }
         if let error {
             self.failAll(error)
             return
@@ -519,10 +599,11 @@ final class JournalExportTransferManager {
         let request: JournalExportStartRequest
         let folderURL: URL
         let accessedSecurityScope: Bool
-        let partURL: URL
+        var partURL: URL
         let initialTransport: String?
         var bytesWritten: Int64
         var generation: UInt64
+        var cancelFlag = IOSExportCancellationFlag()
         var task: Task<Void, Never>?
         var session: URLSession?
         var dataTask: URLSessionDataTask?
@@ -535,6 +616,8 @@ final class JournalExportTransferManager {
     @ObservationIgnored private let prepareRequest: JournalExportRequestPreparer
     @ObservationIgnored private let volumeSpaceProbe: JournalExportVolumeSpaceProbe
     @ObservationIgnored private let onChunkWritten: (@Sendable () async -> Void)?
+    @ObservationIgnored private let onVerifyChunkRead: (@Sendable (Int64) -> Void)?
+    @ObservationIgnored private let publishGate = IOSExportPublishGate()
     @ObservationIgnored private var attemptGeneration: UInt64 = 0
     @ObservationIgnored private var active: ActiveTransfer?
     @ObservationIgnored private var statusListeners: [UUID: @MainActor (JournalExportStatusSnapshot) -> Void] = [:]
@@ -550,12 +633,14 @@ final class JournalExportTransferManager {
         platformName: String = UIDevice.current.userInterfaceIdiom == .pad ? "ipados" : "ios",
         prepareRequest: @escaping JournalExportRequestPreparer = { $0.attachLoopbackCapability() },
         volumeSpaceProbe: @escaping JournalExportVolumeSpaceProbe = JournalExportVolumeSpace.availableBytes(for:),
-        onChunkWritten: (@Sendable () async -> Void)? = nil
+        onChunkWritten: (@Sendable () async -> Void)? = nil,
+        onVerifyChunkRead: (@Sendable (Int64) -> Void)? = nil
     ) {
         self.platformName = platformName
         self.prepareRequest = prepareRequest
         self.volumeSpaceProbe = volumeSpaceProbe
         self.onChunkWritten = onChunkWritten
+        self.onVerifyChunkRead = onVerifyChunkRead
         self.snapshot = .idle(platform: platformName)
     }
 
@@ -604,6 +689,121 @@ final class JournalExportTransferManager {
 
     nonisolated static func partURL(in folderURL: URL, exportID: String) -> URL {
         folderURL.appendingPathComponent(".solstone-export-\(exportID).part")
+    }
+
+    nonisolated static func partURL(in folderURL: URL, exportID: String, generation: UInt64) -> URL {
+        folderURL.appendingPathComponent(".solstone-export-\(exportID)-\(generation).part")
+    }
+
+    /// Scans `folderURL` for the largest valid regular non-symlink partial matching
+    /// `.solstone-export-<exportID>.part` or `.solstone-export-<exportID>-<gen>.part`
+    /// so an interrupted save (from the first or any later attempt across app restarts)
+    /// is credited during preflight and resumed cleanly.
+    nonisolated static func discoverExistingPartFile(
+        in folderURL: URL,
+        exportID: String,
+        maxSize: Int64
+    ) -> (url: URL, size: Int64)? {
+        guard maxSize > 0,
+              let entries = try? FileManager.default.contentsOfDirectory(
+                at: folderURL,
+                includingPropertiesForKeys: nil,
+                options: []
+              )
+        else { return nil }
+        let legacyName = ".solstone-export-\(exportID).part"
+        let genPrefix = ".solstone-export-\(exportID)-"
+        var best: (url: URL, size: Int64, mtimeSec: Int, mtimeNsec: Int)?
+        for url in entries {
+            let name = url.lastPathComponent
+            let matches: Bool
+            if name == legacyName {
+                matches = true
+            } else if name.hasPrefix(genPrefix), name.hasSuffix(".part") {
+                let mid = name.dropFirst(genPrefix.count).dropLast(5)
+                matches = !mid.isEmpty && mid.allSatisfy(\.isASCII) && mid.allSatisfy(\.isNumber)
+            } else {
+                matches = false
+            }
+            guard matches else { continue }
+            var st = stat()
+            let rc = url.path.withCString { Darwin.lstat($0, &st) }
+            guard rc == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_uid == Darwin.geteuid() else { continue }
+            let size = Int64(st.st_size)
+            guard size > 0, size <= maxSize else { continue }
+            let mtimeSec = Int(st.st_mtimespec.tv_sec)
+            let mtimeNsec = Int(st.st_mtimespec.tv_nsec)
+            if let cur = best {
+                if size > cur.size
+                    || (size == cur.size && (mtimeSec > cur.mtimeSec || (mtimeSec == cur.mtimeSec && mtimeNsec > cur.mtimeNsec))) {
+                    best = (url, size, mtimeSec, mtimeNsec)
+                }
+            } else {
+                best = (url, size, mtimeSec, mtimeNsec)
+            }
+        }
+        return best.map { ($0.url, $0.size) }
+    }
+
+    /// Adopts `preferredSource` into `targetPartURL` and cleans only stale owned regular
+    /// partial files for `exportID`. If renaming `preferredSource` fails, `preferredSource`
+    /// is preserved intact and returned so nothing is lost, and non-regular items (symlinks,
+    /// directories, FIFOs) are never deleted.
+    nonisolated static func adoptOrCleanExistingPartials(
+        in folderURL: URL,
+        exportID: String,
+        preferredSource: URL?,
+        targetPartURL: URL,
+        renameFile: (_ from: URL, _ to: URL) -> Bool = { src, dst in
+            let rc = src.path.withCString { s in
+                dst.path.withCString { d in
+                    Darwin.rename(s, d)
+                }
+            }
+            if rc == 0 { return true }
+            return (try? FileManager.default.moveItem(at: src, to: dst)) != nil
+        }
+    ) -> URL {
+        let targetName = targetPartURL.lastPathComponent
+        var adoptedURL = targetPartURL
+        var preservedNames: Set<String> = [targetName]
+        if let src = preferredSource {
+            let srcName = src.lastPathComponent
+            if srcName != targetName {
+                if renameFile(src, targetPartURL) {
+                    adoptedURL = targetPartURL
+                } else {
+                    adoptedURL = src
+                    preservedNames.insert(srcName)
+                }
+            }
+        }
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: folderURL,
+            includingPropertiesForKeys: nil,
+            options: []
+        ) else { return adoptedURL }
+        let legacyName = ".solstone-export-\(exportID).part"
+        let genPrefix = ".solstone-export-\(exportID)-"
+        let uid = Darwin.geteuid()
+        for url in entries where !preservedNames.contains(url.lastPathComponent) {
+            let name = url.lastPathComponent
+            let matches: Bool
+            if name == legacyName {
+                matches = true
+            } else if name.hasPrefix(genPrefix), name.hasSuffix(".part") {
+                let mid = name.dropFirst(genPrefix.count).dropLast(5)
+                matches = !mid.isEmpty && mid.allSatisfy(\.isASCII) && mid.allSatisfy(\.isNumber)
+            } else {
+                matches = false
+            }
+            guard matches else { continue }
+            var st = stat()
+            let rc = url.path.withCString { Darwin.lstat($0, &st) }
+            guard rc == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_uid == uid else { continue }
+            Self.coordinatedRemove(at: url)
+        }
+        return adoptedURL
     }
 
     nonisolated static func uniqueDestinationURL(in folderURL: URL, filename: String) -> URL {
@@ -669,7 +869,15 @@ final class JournalExportTransferManager {
         }
 
         let accessed = folderURL.startAccessingSecurityScopedResource()
-        let required = JournalExportVolumeSpace.requiredBytes(for: request.sizeBytes)
+        let existingPart = Self.discoverExistingPartFile(
+            in: folderURL,
+            exportID: request.exportID,
+            maxSize: request.sizeBytes
+        )
+        let required = JournalExportVolumeSpace.requiredBytes(
+            for: request.sizeBytes,
+            existingPartialBytes: existingPart?.size ?? 0
+        )
         // Honest Files provider space check: only refuse when the provider reports a concrete capacity below required.
         if let free = self.volumeSpaceProbe(folderURL), free < required {
             if accessed { folderURL.stopAccessingSecurityScopedResource() }
@@ -691,15 +899,27 @@ final class JournalExportTransferManager {
         }
 
         self.attemptGeneration &+= 1
-        let partURL = Self.partURL(in: folderURL, exportID: request.exportID)
+        let gen = self.attemptGeneration
+        let targetPartURL = Self.partURL(in: folderURL, exportID: request.exportID, generation: gen)
+        let partURL: URL
+        if let existingPart {
+            partURL = Self.adoptOrCleanExistingPartials(
+                in: folderURL,
+                exportID: request.exportID,
+                preferredSource: existingPart.url,
+                targetPartURL: targetPartURL
+            )
+        } else {
+            partURL = targetPartURL
+        }
         let transfer = ActiveTransfer(
             request: request,
             folderURL: folderURL,
             accessedSecurityScope: accessed,
             partURL: partURL,
             initialTransport: transportProvider(),
-            bytesWritten: 0,
-            generation: self.attemptGeneration
+            bytesWritten: existingPart?.size ?? 0,
+            generation: gen
         )
         self.active = transfer
         if let target = self.activeBackgroundTarget {
@@ -713,6 +933,8 @@ final class JournalExportTransferManager {
         guard var current = self.active else { return self.snapshot }
         if let exportID, !exportID.isEmpty, current.request.exportID != exportID { return self.snapshot }
         guard self.snapshot.phase == "transferring" else { return self.snapshot }
+        self.publishGate.invalidateIfCurrent(current.generation)
+        current.cancelFlag.cancel()
         self.attemptGeneration &+= 1
         current.generation = self.attemptGeneration
         current.userPaused = true
@@ -764,6 +986,7 @@ final class JournalExportTransferManager {
         if let current = self.active {
             if let exportID, !exportID.isEmpty, current.request.exportID != exportID { return self.snapshot }
             self.attemptGeneration &+= 1
+            self.publishGate.invalidateAll()
             self.cancelActiveInternal(current, deletePart: true)
             self.active = nil
         }
@@ -774,6 +997,7 @@ final class JournalExportTransferManager {
     func cancelForUnpair() {
         if let current = self.active {
             self.attemptGeneration &+= 1
+            self.publishGate.invalidateAll()
             self.cancelActiveInternal(current, deletePart: true)
             self.active = nil
         }
@@ -804,6 +1028,8 @@ final class JournalExportTransferManager {
     private func cancelActiveInternal(_ transfer: ActiveTransfer, deletePart: Bool) {
         var mutable = transfer
         mutable.userCancelled = true
+        self.publishGate.invalidateIfCurrent(transfer.generation)
+        mutable.cancelFlag.cancel()
         mutable.streamDelegate?.cancelStream()
         mutable.dataTask?.cancel()
         mutable.session?.invalidateAndCancel()
@@ -835,13 +1061,41 @@ final class JournalExportTransferManager {
             return
         }
 
+        current.cancelFlag.cancel()
+        current.streamDelegate?.cancelStream()
+        current.dataTask?.cancel()
+        current.session?.invalidateAndCancel()
+        current.task?.cancel()
         self.attemptGeneration &+= 1
         let generation = self.attemptGeneration
+        let cancelFlag = IOSExportCancellationFlag()
+        let nextPartURL = Self.partURL(
+            in: current.folderURL,
+            exportID: current.request.exportID,
+            generation: generation
+        )
+        if current.partURL.lastPathComponent != nextPartURL.lastPathComponent,
+           FileManager.default.fileExists(atPath: current.partURL.path) {
+            let renamed = current.partURL.path.withCString { src in
+                nextPartURL.path.withCString { dst in
+                    Darwin.rename(src, dst) == 0
+                }
+            } || ((try? FileManager.default.moveItem(at: current.partURL, to: nextPartURL)) != nil)
+            if renamed {
+                current.partURL = nextPartURL
+            }
+        } else {
+            current.partURL = nextPartURL
+        }
         current.generation = generation
+        current.cancelFlag = cancelFlag
+        self.publishGate.setActiveGeneration(generation)
 
         let diskOffset = Self.existingPartSize(at: current.partURL)
-        let resumeOffset = (diskOffset > 0 && diskOffset < current.request.sizeBytes) ? diskOffset : 0
-        current.bytesWritten = resumeOffset
+        let isFullPartial = (diskOffset == current.request.sizeBytes && diskOffset > 0)
+        let resumeOffset: Int64 = (diskOffset > 0 && diskOffset < current.request.sizeBytes) ? diskOffset : 0
+        let initialBytesWritten = isFullPartial ? diskOffset : resumeOffset
+        current.bytesWritten = initialBytesWritten
 
         let request = current.request
         let partURL = current.partURL
@@ -849,19 +1103,40 @@ final class JournalExportTransferManager {
         let transportNow = self.lastTransportProvider?()
         let prepare = self.prepareRequest
         let chunkHook = self.onChunkWritten
+        let verifyHook = self.onVerifyChunkRead
+        let publishGate = self.publishGate
 
         self.publish(JournalExportStatusSnapshot(
             exportID: request.exportID,
             phase: "transferring",
             platform: self.platformName,
-            bytesWritten: resumeOffset,
+            bytesWritten: initialBytesWritten,
             totalBytes: request.sizeBytes,
             transport: transportNow,
             destinationDisplay: "\(folderURL.lastPathComponent)/\(request.filename)",
             mode: request.mode
         ))
 
-        let delegate = IOSExportStreamDelegate()
+        let expectedSize = request.sizeBytes
+        let headerCancelCheck: (@Sendable (HTTPURLResponse) -> Bool)?
+        if isFullPartial {
+            headerCancelCheck = { (http: HTTPURLResponse) -> Bool in
+                guard http.statusCode == 200 else { return false }
+                if let rawETag = http.value(forHTTPHeaderField: "ETag")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !rawETag.isEmpty {
+                    return true
+                }
+                if let lenStr = http.value(forHTTPHeaderField: "Content-Length")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   let len = Int64(lenStr),
+                   len != expectedSize {
+                    return true
+                }
+                return false
+            }
+        } else {
+            headerCancelCheck = nil
+        }
+        let delegate = IOSExportStreamDelegate(shouldCancelAtHeaders: headerCancelCheck)
         self.lastStreamDelegate = delegate
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 60
@@ -872,7 +1147,11 @@ final class JournalExportTransferManager {
         var urlRequest = URLRequest(url: downloadURL)
         urlRequest.httpMethod = "GET"
         urlRequest.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        if resumeOffset > 0 {
+        if isFullPartial {
+            let lastByte = request.sizeBytes - 1
+            urlRequest.setValue("bytes=\(lastByte)-\(lastByte)", forHTTPHeaderField: "Range")
+            urlRequest.setValue(request.etag, forHTTPHeaderField: "If-Range")
+        } else if resumeOffset > 0 {
             urlRequest.setValue("bytes=\(resumeOffset)-", forHTTPHeaderField: "Range")
             urlRequest.setValue(request.etag, forHTTPHeaderField: "If-Range")
         }
@@ -917,19 +1196,36 @@ final class JournalExportTransferManager {
                 }
                 if status == 416 {
                     Self.coordinatedRemove(at: partURL)
-                    self.finishFailure(exportID: request.exportID, generation: generation, code: "save_failed")
+                    let code = isFullPartial ? "export_copy_unconfirmed" : "save_failed"
+                    self.finishFailure(exportID: request.exportID, generation: generation, code: code)
                     return
                 }
                 guard status == 200 || status == 206 else {
-                    self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: resumeOffset)
+                    self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: initialBytesWritten)
                     return
                 }
 
-                let startOffset: Int64
-                if status == 206 {
+                let rawETag = http.value(forHTTPHeaderField: "ETag")?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let hasValidator = rawETag.map { !$0.isEmpty } ?? false
+                let contentLengthHeader = http.value(forHTTPHeaderField: "Content-Length").flatMap {
+                    Int64($0.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                let lengthMatches = (contentLengthHeader == nil || contentLengthHeader == request.sizeBytes)
+
+                if isFullPartial && status == 200 && (hasValidator || !lengthMatches) {
+                    delegate.cancelStream()
+                    guard hasValidator, Self.matchesStrongETag(rawETag, expected: request.etag), lengthMatches else {
+                        Self.coordinatedRemove(at: partURL)
+                        self.finishFailure(exportID: request.exportID, generation: generation, code: "export_copy_unconfirmed")
+                        return
+                    }
+                    // Range-ignoring 200 with matching strong validator: body cancelled at headers;
+                    // proceed directly to cooperative local SHA-256 verification before publish.
+                } else if isFullPartial && status == 206 {
+                    let lastByte = request.sizeBytes - 1
                     let rangeOK = Self.matchesContentRange(
                         http.value(forHTTPHeaderField: "Content-Range"),
-                        expectedStart: resumeOffset,
+                        expectedStart: lastByte,
                         expectedTotal: request.sizeBytes
                     )
                     let etagOK = Self.matchesStrongETag(
@@ -939,104 +1235,168 @@ final class JournalExportTransferManager {
                     guard rangeOK && etagOK else {
                         delegate.cancelStream()
                         Self.coordinatedRemove(at: partURL)
-                        self.finishFailure(exportID: request.exportID, generation: generation, code: "save_failed")
+                        self.finishFailure(exportID: request.exportID, generation: generation, code: "export_copy_unconfirmed")
                         return
                     }
-                    startOffset = resumeOffset
+                    var probeBytes = 0
+                    for try await chunk in stream {
+                        if cancelFlag.isCancelled || Task.isCancelled { return }
+                        probeBytes += chunk.count
+                        if probeBytes > 1 {
+                            delegate.cancelStream()
+                            Self.coordinatedRemove(at: partURL)
+                            self.finishFailure(exportID: request.exportID, generation: generation, code: "checksum_mismatch")
+                            return
+                        }
+                    }
+                    guard probeBytes == 1 else {
+                        self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: diskOffset)
+                        return
+                    }
                 } else {
-                    startOffset = 0
-                }
-
-                let writeResult: Result<Int64, Error> = await Task.detached(priority: .userInitiated) { [weak self] in
-                    do {
-                        let fd = try Self.openPrivatePartFile(at: partURL, truncate: startOffset == 0)
-                        defer { Darwin.close(fd) }
-                        if startOffset > 0 {
-                            guard Darwin.lseek(fd, off_t(startOffset), SEEK_SET) == off_t(startOffset) else {
-                                throw POSIXError(.EIO)
-                            }
+                    let startOffset: Int64
+                    if status == 206 {
+                        let rangeOK = Self.matchesContentRange(
+                            http.value(forHTTPHeaderField: "Content-Range"),
+                            expectedStart: resumeOffset,
+                            expectedTotal: request.sizeBytes
+                        )
+                        let etagOK = Self.matchesStrongETag(
+                            http.value(forHTTPHeaderField: "ETag"),
+                            expected: request.etag
+                        )
+                        guard rangeOK && etagOK else {
+                            delegate.cancelStream()
+                            Self.coordinatedRemove(at: partURL)
+                            self.finishFailure(exportID: request.exportID, generation: generation, code: "save_failed")
+                            return
                         }
-                        var written = startOffset
-                        var windowStart = ContinuousClock.now
-                        var windowBytes: Int64 = 0
-                        var lastEmit = ContinuousClock.now
-                        for try await chunk in stream {
-                            try Task.checkCancellation()
-                            try Self.writeAll(fd: fd, data: chunk)
-                            if let chunkHook {
-                                await chunkHook()
-                            }
-                            written += Int64(chunk.count)
-                            windowBytes += Int64(chunk.count)
-                            let now = ContinuousClock.now
-                            if now - lastEmit >= .milliseconds(250) {
-                                let elapsed = now - windowStart
-                                let secs = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
-                                let rate = secs > 0.05 ? Double(windowBytes) / secs : nil
-                                if secs >= 2.0 {
-                                    windowStart = now
-                                    windowBytes = 0
-                                }
-                                lastEmit = now
-                                let progress = written
-                                await self?.updateProgress(
-                                    exportID: request.exportID,
-                                    generation: generation,
-                                    bytesWritten: progress,
-                                    rateBytesPerSec: rate
-                                )
-                            }
-                        }
-                        if Darwin.fsync(fd) != 0 {
-                            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-                        }
-                        return .success(written)
-                    } catch {
-                        return .failure(error)
-                    }
-                }.value
-
-                guard self.isCurrentGeneration(exportID: request.exportID, generation: generation) else {
-                    return
-                }
-
-                switch writeResult {
-                case .failure(let error):
-                    if Task.isCancelled { return }
-                    let onDisk = Self.existingPartSize(at: partURL)
-                    if Self.isDiskSpaceError(error) {
-                        Self.coordinatedRemove(at: partURL)
-                        self.finishFailure(exportID: request.exportID, generation: generation, code: "insufficient_device_space")
-                    } else if error is POSIXError {
-                        self.finishFailure(exportID: request.exportID, generation: generation, code: "dest_write_failed")
+                        startOffset = resumeOffset
                     } else {
-                        self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: onDisk)
+                        startOffset = 0
                     }
-                    return
-                case .success(let finalWritten):
-                    guard finalWritten == request.sizeBytes else {
-                        self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: finalWritten)
+
+                    let writeTask = Task.detached(priority: .userInitiated) { [weak self] () -> Result<Int64, Error> in
+                        do {
+                            if cancelFlag.isCancelled || Task.isCancelled {
+                                throw CancellationError()
+                            }
+                            let fd = try Self.openPrivatePartFile(at: partURL, truncate: startOffset == 0)
+                            defer { Darwin.close(fd) }
+                            if startOffset > 0 {
+                                guard Darwin.lseek(fd, off_t(startOffset), SEEK_SET) == off_t(startOffset) else {
+                                    throw POSIXError(.EIO)
+                                }
+                            }
+                            var written = startOffset
+                            var windowStart = ContinuousClock.now
+                            var windowBytes: Int64 = 0
+                            var lastEmit = ContinuousClock.now
+                            for try await chunk in stream {
+                                if cancelFlag.isCancelled || Task.isCancelled {
+                                    throw CancellationError()
+                                }
+                                if written + Int64(chunk.count) > request.sizeBytes {
+                                    throw POSIXError(.EFBIG)
+                                }
+                                try Self.writeAll(fd: fd, data: chunk)
+                                if let chunkHook {
+                                    await chunkHook()
+                                }
+                                written += Int64(chunk.count)
+                                windowBytes += Int64(chunk.count)
+                                let now = ContinuousClock.now
+                                if now - lastEmit >= .milliseconds(250) {
+                                    let elapsed = now - windowStart
+                                    let secs = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+                                    let rate = secs > 0.05 ? Double(windowBytes) / secs : nil
+                                    if secs >= 2.0 {
+                                        windowStart = now
+                                        windowBytes = 0
+                                    }
+                                    lastEmit = now
+                                    let progress = written
+                                    await self?.updateProgress(
+                                        exportID: request.exportID,
+                                        generation: generation,
+                                        bytesWritten: progress,
+                                        rateBytesPerSec: rate
+                                    )
+                                }
+                            }
+                            if cancelFlag.isCancelled || Task.isCancelled {
+                                throw CancellationError()
+                            }
+                            if Darwin.fsync(fd) != 0 {
+                                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                            }
+                            return .success(written)
+                        } catch {
+                            return .failure(error)
+                        }
+                    }
+                    let writeResult: Result<Int64, Error> = await withTaskCancellationHandler {
+                        await writeTask.value
+                    } onCancel: {
+                        cancelFlag.cancel()
+                        writeTask.cancel()
+                    }
+
+                    guard self.isCurrentGeneration(exportID: request.exportID, generation: generation) else {
                         return
+                    }
+
+                    switch writeResult {
+                    case .failure(let error):
+                        if cancelFlag.isCancelled || Task.isCancelled || error is CancellationError { return }
+                        let onDisk = Self.existingPartSize(at: partURL)
+                        if Self.isDiskSpaceError(error) {
+                            Self.coordinatedRemove(at: partURL)
+                            self.finishFailure(exportID: request.exportID, generation: generation, code: "insufficient_device_space")
+                        } else if let posix = error as? POSIXError, posix.code == .EFBIG {
+                            Self.coordinatedRemove(at: partURL)
+                            self.finishFailure(exportID: request.exportID, generation: generation, code: "checksum_mismatch")
+                        } else if error is POSIXError {
+                            self.finishFailure(exportID: request.exportID, generation: generation, code: "dest_write_failed")
+                        } else {
+                            self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: onDisk)
+                        }
+                        return
+                    case .success(let finalWritten):
+                        guard finalWritten == request.sizeBytes else {
+                            self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: finalWritten)
+                            return
+                        }
                     }
                 }
 
                 self.enterVerifying(exportID: request.exportID, generation: generation, totalBytes: request.sizeBytes)
 
-                let verifyResult: Result<String, Error> = await Task.detached(priority: .userInitiated) {
+                let verifyTask = Task.detached(priority: .userInitiated) { () -> Result<String, Error> in
                     do {
-                        return .success(try Self.sha256File(at: partURL))
+                        return .success(try Self.sha256File(
+                            at: partURL,
+                            shouldCancel: { cancelFlag.isCancelled || Task.isCancelled },
+                            onChunkRead: verifyHook
+                        ))
                     } catch {
                         return .failure(error)
                     }
-                }.value
+                }
+                let verifyResult: Result<String, Error> = await withTaskCancellationHandler {
+                    await verifyTask.value
+                } onCancel: {
+                    cancelFlag.cancel()
+                    verifyTask.cancel()
+                }
 
                 guard self.isCurrentGeneration(exportID: request.exportID, generation: generation) else {
-                    Self.coordinatedRemove(at: partURL)
                     return
                 }
 
                 switch verifyResult {
-                case .failure:
+                case .failure(let error):
+                    if cancelFlag.isCancelled || Task.isCancelled || error is CancellationError { return }
                     Self.coordinatedRemove(at: partURL)
                     self.finishFailure(exportID: request.exportID, generation: generation, code: "dest_write_failed")
                 case .success(let actualSHA):
@@ -1045,23 +1405,31 @@ final class JournalExportTransferManager {
                         self.finishFailure(exportID: request.exportID, generation: generation, code: "checksum_mismatch")
                         return
                     }
-                    let publishResult: Result<URL, Error> = await Task.detached(priority: .userInitiated) {
+                    let publishTask = Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
                         do {
                             let finalURL = try Self.publishVerifiedPart(
                                 partURL: partURL,
                                 intoFolder: folderURL,
-                                filename: request.filename
+                                filename: request.filename,
+                                publishGate: publishGate,
+                                generation: generation,
+                                cancelFlag: cancelFlag
                             )
                             return .success(finalURL)
                         } catch {
                             return .failure(error)
                         }
-                    }.value
+                    }
+                    let publishResult: Result<URL, Error> = await withTaskCancellationHandler {
+                        await publishTask.value
+                    } onCancel: {
+                        cancelFlag.cancel()
+                        publishTask.cancel()
+                    }
                     guard self.isCurrentGeneration(exportID: request.exportID, generation: generation) else {
                         if case .success(let orphanedURL) = publishResult {
                             Self.coordinatedRemove(at: orphanedURL)
                         }
-                        Self.coordinatedRemove(at: partURL)
                         return
                     }
                     switch publishResult {
@@ -1073,13 +1441,14 @@ final class JournalExportTransferManager {
                             folderName: folderURL.lastPathComponent,
                             totalBytes: request.sizeBytes
                         )
-                    case .failure:
+                    case .failure(let error):
+                        if cancelFlag.isCancelled || Task.isCancelled || error is CancellationError { return }
                         Self.coordinatedRemove(at: partURL)
                         self.finishFailure(exportID: request.exportID, generation: generation, code: "dest_write_failed")
                     }
                 }
             } catch {
-                if Task.isCancelled { return }
+                if cancelFlag.isCancelled || Task.isCancelled || error is CancellationError { return }
                 guard let self, self.isCurrentGeneration(exportID: request.exportID, generation: generation) else { return }
                 let onDisk = Self.existingPartSize(at: partURL)
                 self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: onDisk)
@@ -1241,13 +1610,24 @@ final class JournalExportTransferManager {
         }
     }
 
-    nonisolated private static func sha256File(at url: URL) throws -> String {
+    nonisolated static func sha256File(
+        at url: URL,
+        shouldCancel: @Sendable () -> Bool = { false },
+        onChunkRead: (@Sendable (Int64) -> Void)? = nil
+    ) throws -> String {
+        if shouldCancel() || Task.isCancelled {
+            throw CancellationError()
+        }
         let fd = url.path.withCString { Darwin.open($0, O_RDONLY | O_NOFOLLOW) }
         guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         defer { Darwin.close(fd) }
         var hasher = SHA256()
-        var buffer = [UInt8](repeating: 0, count: 1024 * 1024)
+        var buffer = [UInt8](repeating: 0, count: 256 * 1024)
+        var totalRead: Int64 = 0
         while true {
+            if shouldCancel() || Task.isCancelled {
+                throw CancellationError()
+            }
             let n = buffer.withUnsafeMutableBytes { raw in
                 Darwin.read(fd, raw.baseAddress, raw.count)
             }
@@ -1256,34 +1636,55 @@ final class JournalExportTransferManager {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
             if n == 0 { break }
+            totalRead += Int64(n)
+            onChunkRead?(totalRead)
+            if shouldCancel() || Task.isCancelled {
+                throw CancellationError()
+            }
             buffer.withUnsafeBytes { raw in
                 hasher.update(bufferPointer: UnsafeRawBufferPointer(start: raw.baseAddress, count: n))
             }
         }
+        if shouldCancel() || Task.isCancelled {
+            throw CancellationError()
+        }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    nonisolated private static func publishVerifiedPart(partURL: URL, intoFolder folderURL: URL, filename: String) throws -> URL {
-        // Choose a non-colliding sibling name inside the chosen folder so any existing document is preserved.
-        let targetURL = Self.uniqueDestinationURL(in: folderURL, filename: filename)
-        var coordError: NSError?
-        var moveError: Error?
-        NSFileCoordinator().coordinate(
-            writingItemAt: partURL,
-            options: .forMoving,
-            writingItemAt: targetURL,
-            options: .forReplacing,
-            error: &coordError
-        ) { src, dst in
-            do {
-                try FileManager.default.moveItem(at: src, to: dst)
-            } catch {
-                moveError = error
+    nonisolated private static func publishVerifiedPart(
+        partURL: URL,
+        intoFolder folderURL: URL,
+        filename: String,
+        publishGate: IOSExportPublishGate,
+        generation: UInt64,
+        cancelFlag: IOSExportCancellationFlag
+    ) throws -> URL {
+        // Serialize destination naming & move against cancellation/supersede so a stale
+        // worker can never publish or collide with a newer save to the same folder.
+        try publishGate.runIfActive(generation: generation, cancelFlag: cancelFlag) {
+            let targetURL = Self.uniqueDestinationURL(in: folderURL, filename: filename)
+            var coordError: NSError?
+            var moveError: Error?
+            NSFileCoordinator().coordinate(
+                writingItemAt: partURL,
+                options: .forMoving,
+                writingItemAt: targetURL,
+                options: .forReplacing,
+                error: &coordError
+            ) { src, dst in
+                do {
+                    guard !cancelFlag.isCancelled, !Task.isCancelled else {
+                        throw CancellationError()
+                    }
+                    try FileManager.default.moveItem(at: src, to: dst)
+                } catch {
+                    moveError = error
+                }
             }
+            if let coordError { throw coordError }
+            if let moveError { throw moveError }
+            return targetURL
         }
-        if let coordError { throw coordError }
-        if let moveError { throw moveError }
-        return targetURL
     }
 
     nonisolated private static func matchesStrongETag(_ actual: String?, expected: String) -> Bool {
