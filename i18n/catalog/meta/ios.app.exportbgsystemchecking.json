@@ -1,0 +1,16 @@
+{
+  "description": "System continued-processing progress title while verifying a saved journal copy in the background.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "inappjournalviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "615f853a7fa781e43b680722397ace72b866111d5e56987d04c3b2851967132e",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -649,6 +649,56 @@
         }
       }
     },
+    "m696f732e6170702e6578706f7274626773797374656d636865636b696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checking saved copy"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e6578706f7274626773797374656d646f6e657469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "journal copy saved"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e6578706f7274626773797374656d7061757365647469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saving paused"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e6578706f7274626773797374656d73746f707065647469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saving stopped"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e6578706f7274626773797374656d7469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saving journal copy"
+          }
+        }
+      }
+    },
     "m696f732e6170702e66696e69736873796e63696e67627574746f6e": {
       "localizations": {
         "en-US": {

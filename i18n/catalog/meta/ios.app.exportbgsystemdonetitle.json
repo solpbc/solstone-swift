@@ -1,0 +1,16 @@
+{
+  "description": "System continued-processing progress title when a journal export finishes saving in the background.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "inappjournalviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "11bef41c83f075487ee8bcc771d8d651524e3ea537b29a4ebe6c5d7ca3039596",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -999,6 +999,66 @@
       "selector": null
     },
     {
+      "id": "ios.app.exportbgsystemchecking",
+      "resource": "m696f732e6170702e6578706f7274626773797374656d636865636b696e67",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.exportbgsystemdonetitle",
+      "resource": "m696f732e6170702e6578706f7274626773797374656d646f6e657469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.exportbgsystempausedtitle",
+      "resource": "m696f732e6170702e6578706f7274626773797374656d7061757365647469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.exportbgsystemstoppedtitle",
+      "resource": "m696f732e6170702e6578706f7274626773797374656d73746f707065647469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.exportbgsystemtitle",
+      "resource": "m696f732e6170702e6578706f7274626773797374656d7469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.app.finishsyncingbutton",
       "resource": "m696f732e6170702e66696e69736873796e63696e67627574746f6e",
       "namespace": "ios.app",

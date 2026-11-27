@@ -136,6 +136,16 @@ nonisolated enum AppStrings {
     static func ios_app_enrolledcontent_resource() -> LocalizedStringResource { resource("m696f732e6170702e656e726f6c6c6564636f6e74656e74") }
     static func ios_app_enrollingsubtextpaired() -> String { render("m696f732e6170702e656e726f6c6c696e6773756274657874706169726564", []) }
     static func ios_app_enrollingsubtextpaired_resource() -> LocalizedStringResource { resource("m696f732e6170702e656e726f6c6c696e6773756274657874706169726564") }
+    static func ios_app_exportbgsystemchecking() -> String { render("m696f732e6170702e6578706f7274626773797374656d636865636b696e67", []) }
+    static func ios_app_exportbgsystemchecking_resource() -> LocalizedStringResource { resource("m696f732e6170702e6578706f7274626773797374656d636865636b696e67") }
+    static func ios_app_exportbgsystemdonetitle() -> String { render("m696f732e6170702e6578706f7274626773797374656d646f6e657469746c65", []) }
+    static func ios_app_exportbgsystemdonetitle_resource() -> LocalizedStringResource { resource("m696f732e6170702e6578706f7274626773797374656d646f6e657469746c65") }
+    static func ios_app_exportbgsystempausedtitle() -> String { render("m696f732e6170702e6578706f7274626773797374656d7061757365647469746c65", []) }
+    static func ios_app_exportbgsystempausedtitle_resource() -> LocalizedStringResource { resource("m696f732e6170702e6578706f7274626773797374656d7061757365647469746c65") }
+    static func ios_app_exportbgsystemstoppedtitle() -> String { render("m696f732e6170702e6578706f7274626773797374656d73746f707065647469746c65", []) }
+    static func ios_app_exportbgsystemstoppedtitle_resource() -> LocalizedStringResource { resource("m696f732e6170702e6578706f7274626773797374656d73746f707065647469746c65") }
+    static func ios_app_exportbgsystemtitle() -> String { render("m696f732e6170702e6578706f7274626773797374656d7469746c65", []) }
+    static func ios_app_exportbgsystemtitle_resource() -> LocalizedStringResource { resource("m696f732e6170702e6578706f7274626773797374656d7469746c65") }
     static func ios_app_finishsyncingbutton() -> String { render("m696f732e6170702e66696e69736873796e63696e67627574746f6e", []) }
     static func ios_app_finishsyncingbutton_resource() -> LocalizedStringResource { resource("m696f732e6170702e66696e69736873796e63696e67627574746f6e") }
     static func ios_app_finishsyncingcardheadline() -> String { render("m696f732e6170702e66696e69736873796e63696e6763617264686561646c696e65", []) }

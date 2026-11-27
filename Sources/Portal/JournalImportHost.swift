@@ -527,6 +527,7 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
     let contract: JournalImportHostContract
     private let contractJSON: String
     private(set) var authHost: JournalAuthHost?
+    private(set) var exportHost: JournalExportHost?
     private let origin: JournalWebNavigationPolicy.Authority
     private let intake: any JournalImportIntake
     private let presentPicker: @MainActor (UIViewController) -> Bool
@@ -548,7 +549,11 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
         intake: any JournalImportIntake,
         bundle: Bundle = Bundle(for: AppDelegate.self),
         presentPicker: (@MainActor (UIViewController) -> Bool)? = nil,
-        authRunner: (any JournalAuthSessionRunning)? = nil
+        authRunner: (any JournalAuthSessionRunning)? = nil,
+        exportTransferManager: JournalExportTransferManager? = nil,
+        exportLiveBaseURL: (@MainActor () -> URL?)? = nil,
+        exportTransportKind: (@MainActor () -> String?)? = nil,
+        exportFolderPicker: JournalExportFolderPickerPresenter? = nil
     ) {
         guard let loaded = JournalImportHostContract.load(bundle: bundle),
               let origin = JournalWebNavigationPolicy.authority(for: entryURL),
@@ -566,6 +571,18 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
                 contractJSON: loadedAuth.json,
                 runner: authRunner ?? LiveJournalAuthSessionRunner(),
                 anchorProvider: { [weak self] in self?.webView?.window }
+            )
+        }
+        if let exportTransferManager, let loadedExport = JournalExportHostContract.load(bundle: bundle) {
+            self.exportHost = JournalExportHost(
+                contract: loadedExport.contract,
+                contractJSON: loadedExport.json,
+                manager: exportTransferManager,
+                liveBaseURL: exportLiveBaseURL ?? { [entryURL] in entryURL },
+                transportKind: exportTransportKind ?? { nil },
+                pickFolder: exportFolderPicker ?? { [weak self] in
+                    await JournalExportFolderPicker().present(over: self?.webView?.window?.rootViewController)
+                }
             )
         }
     }
@@ -590,6 +607,14 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
     func attach(to webView: WKWebView) {
         self.webView = webView
         self.ensureDropInteraction()
+        self.exportHost?.attachEventEmitter { [weak self, weak webView] detail in
+            guard let self, !self.isTornDown, let webView, let exportHost = self.exportHost else { return }
+            let eventName = (try? JSONEncoder().encode(exportHost.contract.event))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+            let detailJSON = Self.json(detail)
+            let script = "window.dispatchEvent(new CustomEvent(\(eventName),{detail:\(detailJSON)}))"
+            webView.evaluateJavaScript(script, in: nil, in: .page) { _ in }
+        }
     }
 
     /// Keeps the host's drop interaction attached to the web view's current content view and
@@ -631,6 +656,8 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
         self.dropInteraction = nil
         self.clearPendingDrop()
         self.authHost?.tearDown()
+        // An export download is app-scoped and keeps going after the journal pane closes.
+        self.exportHost?.detachEventEmitter()
         self.finishPicker(nil)
     }
 
@@ -713,6 +740,9 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
         default:
             if let type, let authHost = self.authHost, authHost.handles(type: type) {
                 return .success(Self.json(await authHost.handle(message, type: type)))
+            }
+            if let type, let exportHost = self.exportHost, exportHost.handles(type: type) {
+                return .success(Self.json(await exportHost.handle(message, type: type)))
             }
             var reply: [String: Any] = ["type": self.contract.unsupported]
             if let id = message["id"] as? String { reply["id"] = id }
@@ -895,15 +925,25 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
     var adapterScript: String {
         let origin = (try? JSONEncoder().encode(self.originString)).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
         let authJSON = self.authHost?.contractJSON ?? "null"
+        let exportJSON = self.exportHost?.contractJSON ?? "null"
         return """
-        ((contract, origin, auth) => {
+        ((contract, origin, auth, exportContract) => {
           if (window !== window.top || location.origin !== origin) return;
           const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(Self.handlerName);
           if (!native) return;
           const documentId = crypto.randomUUID();
           const post = async message => JSON.parse(await native.postMessage(JSON.stringify({documentId, message})));
           const authTypes = auth ? [auth.prepare, auth.authorize, auth.cancel] : [];
-          const types = Object.freeze([contract.pick, ...authTypes]);
+          const exportTypes = exportContract ? [
+            exportContract.start,
+            exportContract.status,
+            exportContract.pause,
+            exportContract.resume,
+            exportContract.cancel,
+            exportContract.reveal,
+            exportContract.deviceSpace
+          ] : [];
+          const types = Object.freeze([contract.pick, ...authTypes, ...exportTypes]);
           const items = {};
           let timer;
           async function update() {
@@ -936,7 +976,7 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
             version:contract.version, types,
             async send(message) {
               if (!message || typeof message.id !== 'string' || typeof message.type !== 'string') throw new TypeError();
-              if (authTypes.includes(message.type)) return await post(message);
+              if (authTypes.includes(message.type) || exportTypes.includes(message.type)) return await post(message);
               if (message.type !== contract.pick) return {type:contract.unsupported, id:message.id};
               const reply = await post(message);
               for (const item of reply.items || []) items[item.item] = {id:message.id, name:item.name};
@@ -957,7 +997,7 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
               post({type:'host.ready'}).catch(() => {});
           };
           document.addEventListener('DOMContentLoaded', ready, {once:true});
-        })(\(self.contractJSON.trimmingCharacters(in: .whitespacesAndNewlines)), \(origin), \(authJSON));
+        })(\(self.contractJSON.trimmingCharacters(in: .whitespacesAndNewlines)), \(origin), \(authJSON), \(exportJSON));
         """
     }
 

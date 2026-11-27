@@ -1,0 +1,16 @@
+{
+  "description": "System continued-processing progress title when a background journal export stops due to failure or cancellation and cannot resume.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "inappjournalviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 40,
+  "source_revision": "bc9b25f35aec7bee63c0e532c5b880606726c7f251509f383a0fef209f4c4290",
+  "risk": "routine",
+  "auto_merge": true
+}

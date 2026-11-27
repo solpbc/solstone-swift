@@ -61,6 +61,8 @@ struct SolstoneSwiftApp: App {
     @State private var shellNav = ShellNavModel()
     @State private var finishSyncingCoordinator: FinishSyncingCoordinator
     @State private var importBackgroundUploadCoordinator: ImportBackgroundUploadCoordinator
+    @State private var journalExportTransferManager: JournalExportTransferManager
+    @State private var exportBackgroundDownloadCoordinator: ExportBackgroundDownloadCoordinator
     @State private var foregroundDrainGate: ForegroundDrainGate
     @State private var launchMaintenanceCoordinator: LaunchMaintenanceCoordinator
     @State private var journalSendRelease: JournalSendRelease
@@ -827,6 +829,11 @@ struct SolstoneSwiftApp: App {
         AppDependencyManager.shared.add(dependency: observerManager as any ObserverSessionControlling)
         ObserverManagerDependencyRegistrationWitness.recordRegistration(of: observerManager)
         weak var importBackgroundUploadRef: ImportBackgroundUploadCoordinator?
+        weak var exportBackgroundDownloadRef: ExportBackgroundDownloadCoordinator?
+        let journalExportTransferManager = JournalExportTransferManager()
+        appConfig.store.registerOnNewPairing { [weak journalExportTransferManager] in
+            journalExportTransferManager?.cancelForUnpair()
+        }
         let finishSyncing = FinishSyncingCoordinator(
             totals: {
                 sendableUploadTotals(
@@ -881,7 +888,8 @@ struct SolstoneSwiftApp: App {
                     locationSustaining: locationManager.isSustainingBackground,
                     finishSyncingActive: false,
                     importUploadActive: importBackgroundUploadRef?.isSustainingBackground ?? false,
-                    observerAudioSustaining: observerManager.isSustainingBackground
+                    observerAudioSustaining: observerManager.isSustainingBackground,
+                    exportDownloadActive: exportBackgroundDownloadRef?.isSustainingBackground ?? false
                 )
             },
             disconnect: {
@@ -889,7 +897,8 @@ struct SolstoneSwiftApp: App {
                     locationSustaining: locationManager.isSustainingBackground,
                     finishSyncingActive: false,
                     importUploadActive: importBackgroundUploadRef?.isSustainingBackground ?? false,
-                    observerAudioSustaining: observerManager.isSustainingBackground
+                    observerAudioSustaining: observerManager.isSustainingBackground,
+                    exportDownloadActive: exportBackgroundDownloadRef?.isSustainingBackground ?? false
                 ) else {
                     return
                 }
@@ -940,7 +949,8 @@ struct SolstoneSwiftApp: App {
                         locationSustaining: locationManager.isSustainingBackground,
                         finishSyncingActive: finishSyncing.isSustainingBackground,
                         importUploadActive: false,
-                        observerAudioSustaining: observerManager.isSustainingBackground
+                        observerAudioSustaining: observerManager.isSustainingBackground,
+                        exportDownloadActive: exportBackgroundDownloadRef?.isSustainingBackground ?? false
                     )
             },
             disconnect: {
@@ -951,6 +961,35 @@ struct SolstoneSwiftApp: App {
             }
         )
         importBackgroundUploadRef = importBackgroundUpload
+        let exportBackgroundDownload = ExportBackgroundDownloadCoordinator(
+            activeTarget: { [weak journalExportTransferManager] in
+                journalExportTransferManager?.activeBackgroundTarget
+            },
+            isConnected: {
+                tunnel.state.isConnected
+            },
+            onExpirePause: { [weak journalExportTransferManager] in
+                journalExportTransferManager?.pauseForBackgroundExpiry()
+            },
+            shouldDisconnectOnExit: {
+                UIApplication.shared.applicationState == .background
+                    && !isBackgroundTunnelSustained(
+                        locationSustaining: locationManager.isSustainingBackground,
+                        finishSyncingActive: finishSyncing.isSustainingBackground,
+                        importUploadActive: importBackgroundUpload.isSustainingBackground,
+                        observerAudioSustaining: observerManager.isSustainingBackground,
+                        exportDownloadActive: false
+                    )
+            },
+            disconnect: {
+                tunnel.cancelConnect()
+                tunnel.cancelReconnect()
+                tunnel.stopNetworkMonitoring()
+                await tunnel.disconnect()
+            }
+        )
+        exportBackgroundDownloadRef = exportBackgroundDownload
+        journalExportTransferManager.backgroundCoordinator = exportBackgroundDownload
         let foregroundDrainGate = ForegroundDrainGate(drive: {
             await driveUploadDrain(
                 mobileSegment: mobileSegmentUploader,
@@ -1042,12 +1081,13 @@ struct SolstoneSwiftApp: App {
         if ageSignal.presentation == .stopped || ageSignal.presentation == .held {
             ageSignal.onBlocked()
         }
-        tunnel.isBackgroundSustained = { [weak locationManager, weak finishSyncing, weak importBackgroundUpload, weak observerManager] in
+        tunnel.isBackgroundSustained = { [weak locationManager, weak finishSyncing, weak importBackgroundUpload, weak exportBackgroundDownload, weak observerManager] in
             isBackgroundTunnelSustained(
                 locationSustaining: locationManager?.isSustainingBackground ?? false,
                 finishSyncingActive: finishSyncing?.isSustainingBackground ?? false,
                 importUploadActive: importBackgroundUpload?.isSustainingBackground ?? false,
-                observerAudioSustaining: observerManager?.isSustainingBackground ?? false
+                observerAudioSustaining: observerManager?.isSustainingBackground ?? false,
+                exportDownloadActive: exportBackgroundDownload?.isSustainingBackground ?? false
             )
         }
         let observerBackgroundTunnelCoordinator = ObserverBackgroundTunnelCoordinator(
@@ -1087,6 +1127,7 @@ struct SolstoneSwiftApp: App {
             },
             onTunnelRevoked: {
                 appConfig.sharedSources.revoke()
+                journalExportTransferManager.cancelForUnpair()
             },
             onTunnelClearPairingRefused: {
                 shareTransferHolder.clearPairingRefused()
@@ -1105,7 +1146,8 @@ struct SolstoneSwiftApp: App {
                     locationSustaining: locationManager.isSustainingBackground,
                     finishSyncingActive: finishSyncing.isSustainingBackground,
                     importUploadActive: importBackgroundUpload.isSustainingBackground,
-                    observerAudioSustaining: observerManager.isSustainingBackground
+                    observerAudioSustaining: observerManager.isSustainingBackground,
+                    exportDownloadActive: exportBackgroundDownload.isSustainingBackground
                 )
             },
             totals: {
@@ -1193,6 +1235,8 @@ struct SolstoneSwiftApp: App {
         self._watchLink = State(initialValue: watchLink)
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self._importBackgroundUploadCoordinator = State(initialValue: importBackgroundUpload)
+        self._journalExportTransferManager = State(initialValue: journalExportTransferManager)
+        self._exportBackgroundDownloadCoordinator = State(initialValue: exportBackgroundDownload)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
         self._journalSendRelease = State(initialValue: journalSendRelease)
@@ -1238,6 +1282,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.connectionSyncModel)
                 .environment(self.finishSyncingCoordinator)
                 .environment(self.importBackgroundUploadCoordinator)
+                .environment(self.journalExportTransferManager)
                 .environment(self.foregroundDrainGate)
                 .environment(self.mobileSegmentTransferHolder)
                 .environment(self.watchUploaderHolder)
@@ -1440,7 +1485,10 @@ struct SolstoneSwiftApp: App {
         }
         .onChange(of: self.tunnelManager.state) { _, newState in
             switch newState {
-            case .connected(_, _):
+            case .connected(_, let endpoint):
+                self.journalExportTransferManager.handleTransportChange(
+                    newTransport: endpoint == .remote ? "relay" : "local"
+                )
 #if SOLSTONE_PHOTOS_LIBRARY
                 if !Self.isIntegrationMode && !Self.isUITest && self.appConfig.isPaired {
                     Task { await self.photosLibraryEngine.foreground() }

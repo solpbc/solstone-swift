@@ -22,6 +22,10 @@ struct JournalWebView: UIViewRepresentable {
     let diagnosticLog: DiagnosticLog
     /// The app's import queue, offered to the journal's own pages; `nil` offers nothing.
     var importIntake: (any JournalImportIntake)? = nil
+    /// The app's native export download manager; `nil` leaves `/app/export/` without native save.
+    var exportTransferManager: JournalExportTransferManager? = nil
+    var exportLiveBaseURL: (@MainActor () -> URL?)? = nil
+    var exportTransportKind: (@MainActor () -> String?)? = nil
     var localeLanguage: @Sendable () -> String = { AppStrings.language }
 
     /// Stable identity keyed on origin + journal instance so navigating between paths on the
@@ -63,7 +67,15 @@ struct JournalWebView: UIViewRepresentable {
                 )
             )
         }
-        let importHost = self.importIntake.flatMap { JournalImportHost(entryURL: self.url, intake: $0) }
+        let importHost = self.importIntake.flatMap {
+            JournalImportHost(
+                entryURL: self.url,
+                intake: $0,
+                exportTransferManager: self.exportTransferManager,
+                exportLiveBaseURL: self.exportLiveBaseURL,
+                exportTransportKind: self.exportTransportKind
+            )
+        }
         importHost?.install(in: configuration.userContentController)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         importHost?.attach(to: webView)
@@ -529,6 +541,7 @@ struct InAppJournalView: View {
     @Environment(PendingJournalOpenState.self) private var pendingJournalOpen: PendingJournalOpenState?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder: ShareTransferHolder?
     @Environment(ForegroundDrainGate.self) private var foregroundDrainGate: ForegroundDrainGate?
+    @Environment(JournalExportTransferManager.self) private var journalExportTransferManager: JournalExportTransferManager?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.paneBesideDeck) private var paneBesideDeck
     @AccessibilityFocusState private var headingFocused: Bool
@@ -724,7 +737,21 @@ struct InAppJournalView: View {
                             reconnectLocation: self.reconnectLocation,
                             loadState: self.$loadState,
                             diagnosticLog: self.diagnosticLog,
-                            importIntake: self.importIntake
+                            importIntake: self.importIntake,
+                            exportTransferManager: self.journalExportTransferManager,
+                            exportLiveBaseURL: { [weak tunnelManager = self.tunnelManager] in
+                                guard let port = tunnelManager?.activeConnection?.port else { return nil }
+                                return URL(string: "http://127.0.0.1:\(port)")
+                            },
+                            exportTransportKind: { [weak tunnelManager = self.tunnelManager] in
+                                guard let tunnelManager else { return nil }
+                                switch tunnelManager.state {
+                                case .connected(_, let endpoint):
+                                    return endpoint == .remote ? "relay" : "local"
+                                default:
+                                    return nil
+                                }
+                            }
                         )
                         // A changed origin, paired journal, or owner needs a new document. Navigating
                         // between paths on the same journal reuses the existing WKWebView in place,

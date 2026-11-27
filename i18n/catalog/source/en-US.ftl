@@ -3410,3 +3410,13 @@ ios.photos.reason.limitedlater = ios is sharing only the photos you picked, so n
 ios.photos.reason.offlater = photo access is off in ios settings, so nothing new comes in. what's already in your journal stays.
 
 ios.photos.reason.journaltooold = waiting for a journal update.
+
+ios.app.exportbgsystemtitle = saving journal copy
+
+ios.app.exportbgsystemchecking = checking saved copy
+
+ios.app.exportbgsystemdonetitle = journal copy saved
+
+ios.app.exportbgsystempausedtitle = saving paused
+
+ios.app.exportbgsystemstoppedtitle = saving stopped

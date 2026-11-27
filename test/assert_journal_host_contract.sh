@@ -24,4 +24,19 @@ if [[ "$actual_sha256" != "$expected_sha256" ]]; then
   exit 1
 fi
 
+export_url="https://raw.githubusercontent.com/solpbc/solstone-journal/f26de8716b0d5f8b30008e56d14c3ca7f0be214e/contracts/journal-web-host/export-host-contract.json"
+expected_export_sha256="7c4f637d55dc879ba980cde392f4ab5f4e4fe1ab14960f6cae20f0f91b4809fc"
+local_export_contract="Sources/Portal/export-host-contract.json"
+curl --fail --location --silent --show-error "$export_url" --output "$download"
+if ! cmp -s "$download" "$local_export_contract"; then
+  echo "journal export host contract assertion failed: packaged bytes differ from pinned source" >&2
+  exit 1
+fi
+
+actual_export_sha256="$(shasum -a 256 "$download" | awk '{print $1}')"
+if [[ "$actual_export_sha256" != "$expected_export_sha256" ]]; then
+  echo "journal export host contract assertion failed: expected $expected_export_sha256, got $actual_export_sha256" >&2
+  exit 1
+fi
+
 echo "journal host contract assertion passed"
