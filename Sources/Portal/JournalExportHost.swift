@@ -10,8 +10,6 @@ import UIKit
 import UniformTypeIdentifiers
 import WebKit
 
-private let exportHostLog = Logger(subsystem: "app.solstone.swift", category: "export-host")
-
 /// The journal's native export-save contract (version 2), packaged alongside `import-host-contract.json`.
 nonisolated struct JournalExportHostContract: Decodable, Equatable, Sendable {
     let version: Int
@@ -176,26 +174,165 @@ nonisolated enum JournalExportVolumeSpace {
     }
 }
 
-/// Low-memory streaming HTTP chunk reader backed by `URLSessionDataDelegate`.
-private final class IOSExportStreamDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    private let lock = NSLock()
-    private var responseContinuation: CheckedContinuation<(HTTPURLResponse, AsyncThrowingStream<Data, Error>), Error>?
-    private var streamContinuation: AsyncThrowingStream<Data, Error>.Continuation?
-    private var stream: AsyncThrowingStream<Data, Error>?
+/// Bounded-memory streaming HTTP chunk reader backed by `URLSessionDataDelegate`.
+/// Enforces explicit backpressure via `URLSessionDataTask.suspend()` / `resume()`
+/// so a slow Files provider cannot cause unbounded RAM buffering on multi-hundred-GB
+/// exports, and installs the response waiter before calling `task.resume()`.
+nonisolated final class IOSExportStreamDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    static let defaultHighWaterBytes = 2 * 1024 * 1024
+    static let defaultLowWaterBytes = 512 * 1024
+
+    private let lock = NSCondition()
+    private let highWaterBytes: Int
+    private let lowWaterBytes: Int
+
+    private var attachedTask: URLSessionDataTask?
+    private var responseContinuation: CheckedContinuation<(HTTPURLResponse, IOSBoundedExportStream), Error>?
+    private var pendingResponse: HTTPURLResponse?
     private var deliveredResponse = false
 
-    nonisolated func awaitResponse() async throws -> (HTTPURLResponse, AsyncThrowingStream<Data, Error>) {
-        try await withCheckedThrowingContinuation { continuation in
-            self.lock.lock()
-            let (s, c) = AsyncThrowingStream.makeStream(of: Data.self, throwing: Error.self)
-            self.stream = s
-            self.streamContinuation = c
-            self.responseContinuation = continuation
-            self.lock.unlock()
+    private var chunks: [Data] = []
+    private var chunkHead = 0
+    private var bufferedBytes = 0
+    private var peakBufferedBytes = 0
+    private var isTaskSuspended = false
+    private var pendingRead: CheckedContinuation<Data?, Error>?
+    private var isCompleted = false
+    private var completionError: Error?
+    private var isCancelled = false
+
+    init(
+        highWaterBytes: Int = IOSExportStreamDelegate.defaultHighWaterBytes,
+        lowWaterBytes: Int = IOSExportStreamDelegate.defaultLowWaterBytes
+    ) {
+        self.highWaterBytes = max(64 * 1024, highWaterBytes)
+        self.lowWaterBytes = max(16 * 1024, min(lowWaterBytes, highWaterBytes / 2))
+    }
+
+    var maxBufferedBytes: Int {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.peakBufferedBytes
+    }
+
+    /// Starts `task` AFTER installing the response waiter so fast loopback responses
+    /// cannot race ahead of continuation registration.
+    func startAndAwaitResponse(task: URLSessionDataTask) async throws -> (HTTPURLResponse, IOSBoundedExportStream) {
+        let stream = IOSBoundedExportStream(delegate: self)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.lock.lock()
+                self.attachedTask = task
+                if self.isCancelled {
+                    self.lock.unlock()
+                    task.cancel()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if let error = self.completionError {
+                    self.lock.unlock()
+                    continuation.resume(throwing: error)
+                    return
+                }
+                if let response = self.pendingResponse {
+                    self.pendingResponse = nil
+                    self.deliveredResponse = true
+                    self.lock.unlock()
+                    continuation.resume(returning: (response, stream))
+                    return
+                }
+                if self.isCompleted {
+                    self.lock.unlock()
+                    continuation.resume(throwing: URLError(.badServerResponse))
+                    return
+                }
+                self.responseContinuation = continuation
+                self.lock.unlock()
+                task.resume()
+            }
+        } onCancel: {
+            self.cancelStream()
         }
     }
 
-    nonisolated func urlSession(
+    func nextChunk() async throws -> Data? {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                var taskToResume: URLSessionDataTask?
+                self.lock.lock()
+                if self.isCancelled {
+                    self.lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if self.chunkHead < self.chunks.count {
+                    let next = self.chunks[self.chunkHead]
+                    self.chunks[self.chunkHead] = Data()
+                    self.chunkHead += 1
+                    if self.chunkHead == self.chunks.count {
+                        self.chunks.removeAll(keepingCapacity: true)
+                        self.chunkHead = 0
+                    } else if self.chunkHead >= 32 && self.chunkHead * 2 >= self.chunks.count {
+                        self.chunks.removeFirst(self.chunkHead)
+                        self.chunkHead = 0
+                    }
+                    self.bufferedBytes = max(0, self.bufferedBytes - next.count)
+                    if self.isTaskSuspended && !self.isCompleted && self.bufferedBytes <= self.lowWaterBytes {
+                        self.isTaskSuspended = false
+                        taskToResume = self.attachedTask
+                        self.lock.broadcast()
+                    }
+                    self.lock.unlock()
+                    taskToResume?.resume()
+                    continuation.resume(returning: next)
+                    return
+                }
+                if self.isCompleted {
+                    let error = self.completionError
+                    self.lock.unlock()
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(returning: nil)
+                    }
+                    return
+                }
+                self.pendingRead = continuation
+                self.lock.unlock()
+            }
+        } onCancel: {
+            self.cancelStream()
+        }
+    }
+
+    func cancelStream() {
+        var taskToCancel: URLSessionDataTask?
+        var respCont: CheckedContinuation<(HTTPURLResponse, IOSBoundedExportStream), Error>?
+        var readCont: CheckedContinuation<Data?, Error>?
+        self.lock.lock()
+        self.isCancelled = true
+        self.isCompleted = true
+        if self.completionError == nil {
+            self.completionError = CancellationError()
+        }
+        self.chunks.removeAll(keepingCapacity: false)
+        self.chunkHead = 0
+        self.bufferedBytes = 0
+        self.isTaskSuspended = false
+        taskToCancel = self.attachedTask
+        self.attachedTask = nil
+        respCont = self.responseContinuation
+        self.responseContinuation = nil
+        readCont = self.pendingRead
+        self.pendingRead = nil
+        self.lock.broadcast()
+        self.lock.unlock()
+        taskToCancel?.cancel()
+        respCont?.resume(throwing: CancellationError())
+        readCont?.resume(throwing: CancellationError())
+    }
+
+    func urlSession(
         _ session: URLSession,
         dataTask: URLSessionDataTask,
         didReceive response: URLResponse,
@@ -206,56 +343,126 @@ private final class IOSExportStreamDelegate: NSObject, URLSessionDataDelegate, @
             completionHandler(.cancel)
             return
         }
+        let stream = IOSBoundedExportStream(delegate: self)
         self.lock.lock()
+        if self.isCancelled {
+            self.lock.unlock()
+            completionHandler(.cancel)
+            return
+        }
         let cont = self.responseContinuation
         self.responseContinuation = nil
-        let stream = self.stream
-        self.deliveredResponse = true
-        self.lock.unlock()
-        if let cont, let stream {
-            cont.resume(returning: (http, stream))
+        if cont != nil {
+            self.deliveredResponse = true
+        } else {
+            self.pendingResponse = http
         }
+        self.lock.unlock()
+        cont?.resume(returning: (http, stream))
         completionHandler(.allow)
     }
 
-    nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard !data.isEmpty else { return }
+        var readCont: CheckedContinuation<Data?, Error>?
+        var shouldSuspend = false
         self.lock.lock()
-        let c = self.streamContinuation
+        while !self.isCancelled && !self.isCompleted && self.bufferedBytes >= self.highWaterBytes {
+            if !self.isTaskSuspended {
+                self.isTaskSuspended = true
+                self.lock.unlock()
+                dataTask.suspend()
+                self.lock.lock()
+                continue
+            }
+            self.lock.wait()
+        }
+        if self.isCancelled || self.isCompleted {
+            self.lock.unlock()
+            return
+        }
+        if let waiter = self.pendingRead {
+            self.pendingRead = nil
+            readCont = waiter
+        } else {
+            self.chunks.append(data)
+            self.bufferedBytes += data.count
+            if self.bufferedBytes > self.peakBufferedBytes {
+                self.peakBufferedBytes = self.bufferedBytes
+            }
+            if !self.isTaskSuspended && self.bufferedBytes >= self.highWaterBytes {
+                self.isTaskSuspended = true
+                shouldSuspend = true
+            }
+        }
         self.lock.unlock()
-        c?.yield(data)
+        if shouldSuspend {
+            dataTask.suspend()
+        }
+        readCont?.resume(returning: data)
     }
 
-    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error {
             self.failAll(error)
-        } else {
-            self.lock.lock()
-            if !self.deliveredResponse, let cont = self.responseContinuation {
-                self.responseContinuation = nil
-                let c = self.streamContinuation
-                self.streamContinuation = nil
-                self.lock.unlock()
-                cont.resume(throwing: URLError(.badServerResponse))
-                c?.finish(throwing: URLError(.badServerResponse))
-                return
-            }
-            let c = self.streamContinuation
-            self.streamContinuation = nil
-            self.lock.unlock()
-            c?.finish()
+            return
+        }
+        var respCont: CheckedContinuation<(HTTPURLResponse, IOSBoundedExportStream), Error>?
+        var readCont: CheckedContinuation<Data?, Error>?
+        var respError: Error?
+        self.lock.lock()
+        self.isCompleted = true
+        if !self.deliveredResponse, let cont = self.responseContinuation {
+            self.responseContinuation = nil
+            respCont = cont
+            respError = URLError(.badServerResponse)
+        }
+        if self.chunkHead >= self.chunks.count, let waiter = self.pendingRead {
+            self.pendingRead = nil
+            readCont = waiter
+        }
+        self.lock.unlock()
+        if let respCont, let respError {
+            respCont.resume(throwing: respError)
+        }
+        readCont?.resume(returning: nil)
+    }
+
+    private func failAll(_ error: Error) {
+        var respCont: CheckedContinuation<(HTTPURLResponse, IOSBoundedExportStream), Error>?
+        var readCont: CheckedContinuation<Data?, Error>?
+        self.lock.lock()
+        self.isCompleted = true
+        if self.completionError == nil {
+            self.completionError = error
+        }
+        respCont = self.responseContinuation
+        self.responseContinuation = nil
+        if self.chunkHead >= self.chunks.count, let waiter = self.pendingRead {
+            self.pendingRead = nil
+            readCont = waiter
+        }
+        self.lock.broadcast()
+        self.lock.unlock()
+        respCont?.resume(throwing: error)
+        readCont?.resume(throwing: error)
+    }
+}
+
+/// AsyncSequence wrapper over `IOSExportStreamDelegate` with bounded backpressure.
+nonisolated struct IOSBoundedExportStream: AsyncSequence, Sendable {
+    typealias Element = Data
+    let delegate: IOSExportStreamDelegate
+
+    struct AsyncIterator: AsyncIteratorProtocol {
+        let delegate: IOSExportStreamDelegate
+        mutating func next() async throws -> Data? {
+            try await self.delegate.nextChunk()
         }
     }
 
-    private nonisolated func failAll(_ error: Error) {
-        self.lock.lock()
-        let cont = self.responseContinuation
-        self.responseContinuation = nil
-        let c = self.streamContinuation
-        self.streamContinuation = nil
-        self.lock.unlock()
-        cont?.resume(throwing: error)
-        c?.finish(throwing: error)
+    func makeAsyncIterator() -> AsyncIterator {
+        AsyncIterator(delegate: self.delegate)
     }
 }
 
@@ -315,9 +522,11 @@ final class JournalExportTransferManager {
         let partURL: URL
         let initialTransport: String?
         var bytesWritten: Int64
+        var generation: UInt64
         var task: Task<Void, Never>?
         var session: URLSession?
         var dataTask: URLSessionDataTask?
+        var streamDelegate: IOSExportStreamDelegate?
         var userPaused = false
         var userCancelled = false
     }
@@ -325,11 +534,14 @@ final class JournalExportTransferManager {
     @ObservationIgnored private let platformName: String
     @ObservationIgnored private let prepareRequest: JournalExportRequestPreparer
     @ObservationIgnored private let volumeSpaceProbe: JournalExportVolumeSpaceProbe
+    @ObservationIgnored private let onChunkWritten: (@Sendable () async -> Void)?
+    @ObservationIgnored private var attemptGeneration: UInt64 = 0
     @ObservationIgnored private var active: ActiveTransfer?
     @ObservationIgnored private var statusListeners: [UUID: @MainActor (JournalExportStatusSnapshot) -> Void] = [:]
     @ObservationIgnored private var lastBaseURLProvider: (@MainActor () -> URL?)?
     @ObservationIgnored private var lastTransportProvider: (@MainActor () -> String?)?
     @ObservationIgnored private var lastExportFilename: String = ""
+    @ObservationIgnored private var lastStreamDelegate: IOSExportStreamDelegate?
     @ObservationIgnored weak var backgroundCoordinator: ExportBackgroundDownloadCoordinator?
 
     private(set) var snapshot: JournalExportStatusSnapshot
@@ -337,12 +549,18 @@ final class JournalExportTransferManager {
     init(
         platformName: String = UIDevice.current.userInterfaceIdiom == .pad ? "ipados" : "ios",
         prepareRequest: @escaping JournalExportRequestPreparer = { $0.attachLoopbackCapability() },
-        volumeSpaceProbe: @escaping JournalExportVolumeSpaceProbe = JournalExportVolumeSpace.availableBytes(for:)
+        volumeSpaceProbe: @escaping JournalExportVolumeSpaceProbe = JournalExportVolumeSpace.availableBytes(for:),
+        onChunkWritten: (@Sendable () async -> Void)? = nil
     ) {
         self.platformName = platformName
         self.prepareRequest = prepareRequest
         self.volumeSpaceProbe = volumeSpaceProbe
+        self.onChunkWritten = onChunkWritten
         self.snapshot = .idle(platform: platformName)
+    }
+
+    var lastMaxBufferedBytes: Int {
+        self.lastStreamDelegate?.maxBufferedBytes ?? 0
     }
 
     var activeBackgroundTarget: ExportBackgroundDownloadTarget? {
@@ -457,7 +675,7 @@ final class JournalExportTransferManager {
             if accessed { folderURL.stopAccessingSecurityScopedResource() }
             let failed = JournalExportStatusSnapshot(
                 exportID: request.exportID,
-                phase: "failed",
+                phase: "error",
                 platform: self.platformName,
                 bytesWritten: 0,
                 totalBytes: request.sizeBytes,
@@ -472,6 +690,7 @@ final class JournalExportTransferManager {
             return failed
         }
 
+        self.attemptGeneration &+= 1
         let partURL = Self.partURL(in: folderURL, exportID: request.exportID)
         let transfer = ActiveTransfer(
             request: request,
@@ -479,7 +698,8 @@ final class JournalExportTransferManager {
             accessedSecurityScope: accessed,
             partURL: partURL,
             initialTransport: transportProvider(),
-            bytesWritten: 0
+            bytesWritten: 0,
+            generation: self.attemptGeneration
         )
         self.active = transfer
         if let target = self.activeBackgroundTarget {
@@ -493,10 +713,14 @@ final class JournalExportTransferManager {
         guard var current = self.active else { return self.snapshot }
         if let exportID, !exportID.isEmpty, current.request.exportID != exportID { return self.snapshot }
         guard self.snapshot.phase == "transferring" else { return self.snapshot }
+        self.attemptGeneration &+= 1
+        current.generation = self.attemptGeneration
         current.userPaused = true
+        current.streamDelegate?.cancelStream()
         current.dataTask?.cancel()
         current.session?.invalidateAndCancel()
         current.task?.cancel()
+        current.streamDelegate = nil
         current.dataTask = nil
         current.session = nil
         current.task = nil
@@ -539,6 +763,7 @@ final class JournalExportTransferManager {
     func cancel(exportID: String?) -> JournalExportStatusSnapshot {
         if let current = self.active {
             if let exportID, !exportID.isEmpty, current.request.exportID != exportID { return self.snapshot }
+            self.attemptGeneration &+= 1
             self.cancelActiveInternal(current, deletePart: true)
             self.active = nil
         }
@@ -548,6 +773,7 @@ final class JournalExportTransferManager {
 
     func cancelForUnpair() {
         if let current = self.active {
+            self.attemptGeneration &+= 1
             self.cancelActiveInternal(current, deletePart: true)
             self.active = nil
         }
@@ -566,9 +792,19 @@ final class JournalExportTransferManager {
         _ = self.pause(exportID: current.request.exportID, reason: "paused")
     }
 
+    private func isCurrentGeneration(exportID: String, generation: UInt64) -> Bool {
+        guard let current = self.active else { return false }
+        return current.request.exportID == exportID
+            && current.generation == generation
+            && self.attemptGeneration == generation
+            && !current.userPaused
+            && !current.userCancelled
+    }
+
     private func cancelActiveInternal(_ transfer: ActiveTransfer, deletePart: Bool) {
         var mutable = transfer
         mutable.userCancelled = true
+        mutable.streamDelegate?.cancelStream()
         mutable.dataTask?.cancel()
         mutable.session?.invalidateAndCancel()
         mutable.task?.cancel()
@@ -599,6 +835,10 @@ final class JournalExportTransferManager {
             return
         }
 
+        self.attemptGeneration &+= 1
+        let generation = self.attemptGeneration
+        current.generation = generation
+
         let diskOffset = Self.existingPartSize(at: current.partURL)
         let resumeOffset = (diskOffset > 0 && diskOffset < current.request.sizeBytes) ? diskOffset : 0
         current.bytesWritten = resumeOffset
@@ -608,6 +848,7 @@ final class JournalExportTransferManager {
         let folderURL = current.folderURL
         let transportNow = self.lastTransportProvider?()
         let prepare = self.prepareRequest
+        let chunkHook = self.onChunkWritten
 
         self.publish(JournalExportStatusSnapshot(
             exportID: request.exportID,
@@ -621,6 +862,7 @@ final class JournalExportTransferManager {
         ))
 
         let delegate = IOSExportStreamDelegate()
+        self.lastStreamDelegate = delegate
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 60 * 60 * 48
@@ -639,17 +881,24 @@ final class JournalExportTransferManager {
         let dataTask = session.dataTask(with: urlRequest)
         current.session = session
         current.dataTask = dataTask
+        current.streamDelegate = delegate
 
         let task = Task { [weak self] in
-            defer { session.finishTasksAndInvalidate() }
-            dataTask.resume()
+            defer {
+                delegate.cancelStream()
+                session.finishTasksAndInvalidate()
+            }
             do {
-                let (http, stream) = try await delegate.awaitResponse()
+                let (http, stream) = try await delegate.startAndAwaitResponse(task: dataTask)
+                guard let self, self.isCurrentGeneration(exportID: request.exportID, generation: generation) else {
+                    delegate.cancelStream()
+                    return
+                }
                 let status = http.statusCode
 
                 if status == 401 || status == 403 {
                     Self.coordinatedRemove(at: partURL)
-                    self?.finishFailure(exportID: request.exportID, code: "export_requester_revoked")
+                    self.finishFailure(exportID: request.exportID, generation: generation, code: "export_requester_revoked")
                     return
                 }
                 if status == 404 || status == 410 {
@@ -657,33 +906,40 @@ final class JournalExportTransferManager {
                     for try await chunk in stream {
                         if bodyData.count < 8192 { bodyData.append(chunk) }
                     }
+                    guard self.isCurrentGeneration(exportID: request.exportID, generation: generation) else { return }
                     let serverCode = Self.extractErrorCode(from: bodyData)
                     let mapped = (serverCode == "export_invalidated_by_erasure")
                         ? "export_invalidated_by_erasure"
                         : "export_expired"
                     Self.coordinatedRemove(at: partURL)
-                    self?.finishFailure(exportID: request.exportID, code: mapped)
+                    self.finishFailure(exportID: request.exportID, generation: generation, code: mapped)
                     return
                 }
                 if status == 416 {
                     Self.coordinatedRemove(at: partURL)
-                    self?.finishFailure(exportID: request.exportID, code: "save_failed")
+                    self.finishFailure(exportID: request.exportID, generation: generation, code: "save_failed")
                     return
                 }
                 guard status == 200 || status == 206 else {
-                    self?.handleStreamDrop(exportID: request.exportID, bytesWritten: resumeOffset)
+                    self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: resumeOffset)
                     return
                 }
 
                 let startOffset: Int64
                 if status == 206 {
-                    guard Self.matchesContentRange(
+                    let rangeOK = Self.matchesContentRange(
                         http.value(forHTTPHeaderField: "Content-Range"),
                         expectedStart: resumeOffset,
                         expectedTotal: request.sizeBytes
-                    ) else {
+                    )
+                    let etagOK = Self.matchesStrongETag(
+                        http.value(forHTTPHeaderField: "ETag"),
+                        expected: request.etag
+                    )
+                    guard rangeOK && etagOK else {
+                        delegate.cancelStream()
                         Self.coordinatedRemove(at: partURL)
-                        self?.finishFailure(exportID: request.exportID, code: "save_failed")
+                        self.finishFailure(exportID: request.exportID, generation: generation, code: "save_failed")
                         return
                     }
                     startOffset = resumeOffset
@@ -707,6 +963,9 @@ final class JournalExportTransferManager {
                         for try await chunk in stream {
                             try Task.checkCancellation()
                             try Self.writeAll(fd: fd, data: chunk)
+                            if let chunkHook {
+                                await chunkHook()
+                            }
                             written += Int64(chunk.count)
                             windowBytes += Int64(chunk.count)
                             let now = ContinuousClock.now
@@ -722,6 +981,7 @@ final class JournalExportTransferManager {
                                 let progress = written
                                 await self?.updateProgress(
                                     exportID: request.exportID,
+                                    generation: generation,
                                     bytesWritten: progress,
                                     rateBytesPerSec: rate
                                 )
@@ -736,27 +996,31 @@ final class JournalExportTransferManager {
                     }
                 }.value
 
+                guard self.isCurrentGeneration(exportID: request.exportID, generation: generation) else {
+                    return
+                }
+
                 switch writeResult {
                 case .failure(let error):
                     if Task.isCancelled { return }
                     let onDisk = Self.existingPartSize(at: partURL)
                     if Self.isDiskSpaceError(error) {
                         Self.coordinatedRemove(at: partURL)
-                        self?.finishFailure(exportID: request.exportID, code: "dest_write_failed")
+                        self.finishFailure(exportID: request.exportID, generation: generation, code: "insufficient_device_space")
                     } else if error is POSIXError {
-                        self?.finishFailure(exportID: request.exportID, code: "dest_write_failed")
+                        self.finishFailure(exportID: request.exportID, generation: generation, code: "dest_write_failed")
                     } else {
-                        self?.handleStreamDrop(exportID: request.exportID, bytesWritten: onDisk)
+                        self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: onDisk)
                     }
                     return
                 case .success(let finalWritten):
                     guard finalWritten == request.sizeBytes else {
-                        self?.handleStreamDrop(exportID: request.exportID, bytesWritten: finalWritten)
+                        self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: finalWritten)
                         return
                     }
                 }
 
-                self?.enterVerifying(exportID: request.exportID, totalBytes: request.sizeBytes)
+                self.enterVerifying(exportID: request.exportID, generation: generation, totalBytes: request.sizeBytes)
 
                 let verifyResult: Result<String, Error> = await Task.detached(priority: .userInitiated) {
                     do {
@@ -766,14 +1030,19 @@ final class JournalExportTransferManager {
                     }
                 }.value
 
+                guard self.isCurrentGeneration(exportID: request.exportID, generation: generation) else {
+                    Self.coordinatedRemove(at: partURL)
+                    return
+                }
+
                 switch verifyResult {
                 case .failure:
                     Self.coordinatedRemove(at: partURL)
-                    self?.finishFailure(exportID: request.exportID, code: "dest_write_failed")
+                    self.finishFailure(exportID: request.exportID, generation: generation, code: "dest_write_failed")
                 case .success(let actualSHA):
                     guard actualSHA == request.sha256 else {
                         Self.coordinatedRemove(at: partURL)
-                        self?.finishFailure(exportID: request.exportID, code: "checksum_mismatch")
+                        self.finishFailure(exportID: request.exportID, generation: generation, code: "checksum_mismatch")
                         return
                     }
                     let publishResult: Result<URL, Error> = await Task.detached(priority: .userInitiated) {
@@ -788,32 +1057,41 @@ final class JournalExportTransferManager {
                             return .failure(error)
                         }
                     }.value
+                    guard self.isCurrentGeneration(exportID: request.exportID, generation: generation) else {
+                        if case .success(let orphanedURL) = publishResult {
+                            Self.coordinatedRemove(at: orphanedURL)
+                        }
+                        Self.coordinatedRemove(at: partURL)
+                        return
+                    }
                     switch publishResult {
                     case .success(let finalURL):
-                        self?.finishSaved(
+                        self.finishSaved(
                             exportID: request.exportID,
+                            generation: generation,
                             finalURL: finalURL,
                             folderName: folderURL.lastPathComponent,
                             totalBytes: request.sizeBytes
                         )
                     case .failure:
                         Self.coordinatedRemove(at: partURL)
-                        self?.finishFailure(exportID: request.exportID, code: "dest_write_failed")
+                        self.finishFailure(exportID: request.exportID, generation: generation, code: "dest_write_failed")
                     }
                 }
             } catch {
                 if Task.isCancelled { return }
+                guard let self, self.isCurrentGeneration(exportID: request.exportID, generation: generation) else { return }
                 let onDisk = Self.existingPartSize(at: partURL)
-                self?.handleStreamDrop(exportID: request.exportID, bytesWritten: onDisk)
+                self.handleStreamDrop(exportID: request.exportID, generation: generation, bytesWritten: onDisk)
             }
         }
         current.task = task
         self.active = current
     }
 
-    private func updateProgress(exportID: String, bytesWritten: Int64, rateBytesPerSec: Double?) {
-        guard var current = self.active, current.request.exportID == exportID,
-              !current.userPaused, !current.userCancelled,
+    private func updateProgress(exportID: String, generation: UInt64, bytesWritten: Int64, rateBytesPerSec: Double?) {
+        guard self.isCurrentGeneration(exportID: exportID, generation: generation),
+              var current = self.active,
               self.snapshot.phase == "transferring"
         else { return }
         current.bytesWritten = bytesWritten
@@ -831,9 +1109,9 @@ final class JournalExportTransferManager {
         ))
     }
 
-    private func enterVerifying(exportID: String, totalBytes: Int64) {
-        guard var current = self.active, current.request.exportID == exportID,
-              !current.userPaused, !current.userCancelled
+    private func enterVerifying(exportID: String, generation: UInt64, totalBytes: Int64) {
+        guard self.isCurrentGeneration(exportID: exportID, generation: generation),
+              var current = self.active
         else { return }
         current.bytesWritten = totalBytes
         self.active = current
@@ -849,13 +1127,15 @@ final class JournalExportTransferManager {
         ))
     }
 
-    private func handleStreamDrop(exportID: String, bytesWritten: Int64) {
-        guard var current = self.active, current.request.exportID == exportID else { return }
-        if current.userPaused || current.userCancelled { return }
+    private func handleStreamDrop(exportID: String, generation: UInt64, bytesWritten: Int64) {
+        guard self.isCurrentGeneration(exportID: exportID, generation: generation),
+              var current = self.active
+        else { return }
         current.bytesWritten = bytesWritten
         current.task = nil
         current.dataTask = nil
         current.session = nil
+        current.streamDelegate = nil
         self.active = current
         self.publish(JournalExportStatusSnapshot(
             exportID: exportID,
@@ -870,9 +1150,10 @@ final class JournalExportTransferManager {
         ))
     }
 
-    private func finishFailure(exportID: String, code: String) {
-        guard let current = self.active, current.request.exportID == exportID else { return }
-        if current.userCancelled { return }
+    private func finishFailure(exportID: String, generation: UInt64, code: String) {
+        guard self.isCurrentGeneration(exportID: exportID, generation: generation),
+              let current = self.active
+        else { return }
         let dest = "\(current.folderURL.lastPathComponent)/\(current.request.filename)"
         let mode = current.request.mode
         let total = current.request.sizeBytes
@@ -882,7 +1163,7 @@ final class JournalExportTransferManager {
         self.active = nil
         self.publish(JournalExportStatusSnapshot(
             exportID: exportID,
-            phase: "failed",
+            phase: "error",
             platform: self.platformName,
             bytesWritten: 0,
             totalBytes: total,
@@ -893,8 +1174,10 @@ final class JournalExportTransferManager {
         ))
     }
 
-    private func finishSaved(exportID: String, finalURL: URL, folderName: String, totalBytes: Int64) {
-        guard let current = self.active, current.request.exportID == exportID else { return }
+    private func finishSaved(exportID: String, generation: UInt64, finalURL: URL, folderName: String, totalBytes: Int64) {
+        guard self.isCurrentGeneration(exportID: exportID, generation: generation),
+              let current = self.active
+        else { return }
         let mode = current.request.mode
         if current.accessedSecurityScope {
             current.folderURL.stopAccessingSecurityScopedResource()
@@ -1003,6 +1286,18 @@ final class JournalExportTransferManager {
         return targetURL
     }
 
+    nonisolated private static func matchesStrongETag(_ actual: String?, expected: String) -> Bool {
+        guard let got = actual?.trimmingCharacters(in: .whitespacesAndNewlines), !got.isEmpty else {
+            return false
+        }
+        let exp = expected.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !exp.isEmpty,
+              !got.hasPrefix("W/"), !got.hasPrefix("w/"),
+              !exp.hasPrefix("W/"), !exp.hasPrefix("w/")
+        else { return false }
+        return got == exp
+    }
+
     nonisolated private static func matchesContentRange(_ header: String?, expectedStart: Int64, expectedTotal: Int64) -> Bool {
         guard let header, header.hasPrefix("bytes ") else { return false }
         let rest = header.dropFirst(6)
@@ -1099,7 +1394,7 @@ final class JournalExportHost {
             return self.manager.snapshot.toJSON(replyID: id)
         case self.contract.start:
             guard let request = JournalExportStartRequest.parse(message) else {
-                exportHostLog.notice("export-host: refused invalid export.start payload")
+                journalWebLog.notice("export-host: refused invalid export.start payload")
                 return ["type": self.contract.unsupported, "id": id]
             }
             let snap = await self.manager.start(

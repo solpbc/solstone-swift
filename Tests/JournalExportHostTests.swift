@@ -117,7 +117,7 @@ final class JournalExportHostTests: XCTestCase {
         XCTAssertEqual(reply["id"] as? String, "start-1")
         XCTAssertEqual(reply["export_id"] as? String, exportID)
 
-        let terminal = try await self.waitForPhase(manager, in: ["saved", "failed"])
+        let terminal = try await self.waitForPhase(manager, in: ["saved", "error"])
         XCTAssertEqual(terminal.phase, "saved")
         XCTAssertTrue(terminal.verified)
         XCTAssertEqual(terminal.bytesWritten, Int64(payload.count))
@@ -161,7 +161,7 @@ final class JournalExportHostTests: XCTestCase {
             "sha256": String(repeating: "a", count: 64),
             "etag": "\"sha256-test\"",
         ], to: host)
-        XCTAssertEqual(reply["phase"] as? String, "failed")
+        XCTAssertEqual(reply["phase"] as? String, "error")
         XCTAssertEqual(reply["platform"] as? String, "ipados")
         XCTAssertEqual(reply["error_code"] as? String, "insufficient_device_space")
         XCTAssertEqual((reply["available_bytes"] as? NSNumber)?.int64Value, 1024)
@@ -207,7 +207,7 @@ final class JournalExportHostTests: XCTestCase {
             "etag": etag,
         ], to: host)
 
-        let paused = try await self.waitForPhase(manager, in: ["paused", "failed"])
+        let paused = try await self.waitForPhase(manager, in: ["paused", "error"])
         XCTAssertEqual(paused.phase, "paused")
         XCTAssertEqual(paused.pauseReason, "disconnected")
         XCTAssertEqual(paused.bytesWritten, 131_072)
@@ -218,7 +218,7 @@ final class JournalExportHostTests: XCTestCase {
             "export_id": exportID,
         ], to: host)
 
-        let saved = try await self.waitForPhase(manager, in: ["saved", "failed"])
+        let saved = try await self.waitForPhase(manager, in: ["saved", "error"])
         XCTAssertEqual(saved.phase, "saved")
         XCTAssertTrue(saved.verified)
         XCTAssertEqual(try Data(contentsOf: folder.appendingPathComponent("solstone-journal-resume.zip")), payload)
@@ -271,9 +271,184 @@ final class JournalExportHostTests: XCTestCase {
             "etag": "\"sha256-\(expectedSHA)\"",
         ], to: host)
 
-        let failed = try await self.waitForPhase(manager, in: ["failed", "saved"])
-        XCTAssertEqual(failed.phase, "failed")
+        let failed = try await self.waitForPhase(manager, in: ["error", "saved"])
+        XCTAssertEqual(failed.phase, "error")
         XCTAssertEqual(failed.errorCode, "export_invalidated_by_erasure")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: JournalExportTransferManager.partURL(in: folder, exportID: exportID).path))
+    }
+
+    func testSlowConsumer32MiBStreamCapsBufferedBytesViaBackpressure() async throws {
+        let size = 32 * 1024 * 1024
+        var payload = Data(count: size)
+        payload.withUnsafeMutableBytes { raw in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            for i in 0..<size {
+                bytes[i] = UInt8((i &* 31 &+ (i >> 8)) & 0xff)
+            }
+        }
+        let expectedSHA = Self.sha256Hex(payload)
+        let etag = "\"sha256-\(expectedSHA)\""
+        let exportID = "exp_ios_32mb_backpressure"
+        let server = try IOSLoopbackExportServer(payload: payload, etag: etag)
+        defer { server.stop() }
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ios-export-32mb-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let manager = JournalExportTransferManager(
+            platformName: "ios",
+            prepareRequest: { _ in },
+            volumeSpaceProbe: { _ in 512 * 1024 * 1024 },
+            onChunkWritten: {
+                try? await Task.sleep(for: .milliseconds(2))
+            }
+        )
+        let host = try XCTUnwrap(JournalImportHost(
+            entryURL: server.baseURL,
+            intake: ExportTestFakeIntake(),
+            exportTransferManager: manager,
+            exportLiveBaseURL: { server.baseURL },
+            exportTransportKind: { "local" },
+            exportFolderPicker: { folder }
+        ))
+
+        _ = try await self.send([
+            "type": "export.start",
+            "id": "bp-1",
+            "export_id": exportID,
+            "download_path": "/app/export/api/ready/\(exportID)/download",
+            "filename": "large-32mb.zip",
+            "size_bytes": payload.count,
+            "sha256": expectedSHA,
+            "etag": etag,
+        ], to: host)
+
+        let terminal = try await self.waitForPhase(manager, in: ["saved", "error"], timeout: 60)
+        XCTAssertEqual(terminal.phase, "saved")
+        XCTAssertTrue(terminal.verified)
+        XCTAssertLessThan(
+            manager.lastMaxBufferedBytes,
+            6 * 1024 * 1024,
+            "bounded stream backpressure must cap peak buffered bytes well below the 32 MiB payload"
+        )
+        XCTAssertEqual(try Data(contentsOf: folder.appendingPathComponent("large-32mb.zip")), payload)
+    }
+
+    func testResume206WithMismatchedETagRefusesAppendAndFailsCleanly() async throws {
+        let count = 256 * 1024 + 41
+        let payload = Data((0..<count).map { UInt8(($0 * 11) & 0xff) })
+        let expectedSHA = Self.sha256Hex(payload)
+        let etag = "\"sha256-\(expectedSHA)\""
+        let exportID = "exp_ios_etag_mismatch"
+        let server = try IOSLoopbackExportServer(
+            payload: payload,
+            etag: etag,
+            response206ETag: "\"sha256-stale-other\"",
+            truncateFirstAttemptAt: 98_304
+        )
+        defer { server.stop() }
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ios-export-etag-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let manager = JournalExportTransferManager(
+            platformName: "ios",
+            prepareRequest: { _ in },
+            volumeSpaceProbe: { _ in 100_000_000 }
+        )
+        let host = try XCTUnwrap(JournalImportHost(
+            entryURL: server.baseURL,
+            intake: ExportTestFakeIntake(),
+            exportTransferManager: manager,
+            exportLiveBaseURL: { server.baseURL },
+            exportTransportKind: { "local" },
+            exportFolderPicker: { folder }
+        ))
+
+        _ = try await self.send([
+            "type": "export.start",
+            "id": "etag-1",
+            "export_id": exportID,
+            "download_path": "/app/export/api/ready/\(exportID)/download",
+            "filename": "etag-test.zip",
+            "size_bytes": payload.count,
+            "sha256": expectedSHA,
+            "etag": etag,
+        ], to: host)
+
+        let paused = try await self.waitForPhase(manager, in: ["paused", "error"])
+        XCTAssertEqual(paused.phase, "paused")
+
+        _ = try await self.send([
+            "type": "export.resume",
+            "id": "etag-2",
+            "export_id": exportID,
+        ], to: host)
+
+        let failed = try await self.waitForPhase(manager, in: ["error", "saved"])
+        XCTAssertEqual(failed.phase, "error")
+        XCTAssertEqual(failed.errorCode, "save_failed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("etag-test.zip").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: JournalExportTransferManager.partURL(in: folder, exportID: exportID).path))
+    }
+
+    func testCancelDuringTransferPreventsStalePublishAndRemovesPart() async throws {
+        let count = 2 * 1024 * 1024
+        let payload = Data((0..<count).map { UInt8(($0 * 13) & 0xff) })
+        let expectedSHA = Self.sha256Hex(payload)
+        let etag = "\"sha256-\(expectedSHA)\""
+        let exportID = "exp_ios_cancel_race"
+        let server = try IOSLoopbackExportServer(payload: payload, etag: etag)
+        defer { server.stop() }
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ios-export-cancel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let manager = JournalExportTransferManager(
+            platformName: "ios",
+            prepareRequest: { _ in },
+            volumeSpaceProbe: { _ in 100_000_000 },
+            onChunkWritten: {
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+        )
+        let host = try XCTUnwrap(JournalImportHost(
+            entryURL: server.baseURL,
+            intake: ExportTestFakeIntake(),
+            exportTransferManager: manager,
+            exportLiveBaseURL: { server.baseURL },
+            exportTransportKind: { "local" },
+            exportFolderPicker: { folder }
+        ))
+
+        _ = try await self.send([
+            "type": "export.start",
+            "id": "can-1",
+            "export_id": exportID,
+            "download_path": "/app/export/api/ready/\(exportID)/download",
+            "filename": "cancelled.zip",
+            "size_bytes": payload.count,
+            "sha256": expectedSHA,
+            "etag": etag,
+        ], to: host)
+
+        try await Task.sleep(for: .milliseconds(40))
+        let cancelled = try await self.send([
+            "type": "export.cancel",
+            "id": "can-2",
+            "export_id": exportID,
+        ], to: host)
+        XCTAssertEqual(cancelled["phase"] as? String, "idle")
+
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(manager.snapshot.phase, "idle")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("cancelled.zip").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: JournalExportTransferManager.partURL(in: folder, exportID: exportID).path))
     }
 
@@ -370,7 +545,7 @@ final class JournalExportHostTests: XCTestCase {
         XCTAssertEqual(savedHandle.completedSuccess, true)
         XCTAssertEqual(savedHandle.lastTitle, AppStrings.ios_app_exportbgsystemdonetitle())
 
-        // 2. Failure / cancellation ("failed" / "idle") -> .stopped + "saving stopped"
+        // 2. Failure / cancellation ("error" / "idle") -> .stopped + "saving stopped"
         let failedHandle = SpyExportBgTaskHandle()
         var failedActive: ExportBackgroundDownloadTarget? = ExportBackgroundDownloadTarget(
             exportID: "exp_bg_fail",
@@ -397,7 +572,7 @@ final class JournalExportHostTests: XCTestCase {
             filename: "solstone-journal-2026-11-26.zip",
             bytesWritten: 0,
             bytesTotal: 262_144,
-            phase: "failed"
+            phase: "error"
         ))
         await failedTask.value
         XCTAssertEqual(failedCoordinator.lastOutcome, .stopped)
@@ -415,8 +590,8 @@ final class JournalExportHostTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(replyText.utf8)) as? [String: Any])
     }
 
-    private func waitForPhase(_ manager: JournalExportTransferManager, in targets: Set<String>) async throws -> JournalExportStatusSnapshot {
-        let deadline = Date().addingTimeInterval(10)
+    private func waitForPhase(_ manager: JournalExportTransferManager, in targets: Set<String>, timeout: TimeInterval = 10) async throws -> JournalExportStatusSnapshot {
+        let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if targets.contains(manager.snapshot.phase) {
                 return manager.snapshot
@@ -495,6 +670,7 @@ private final class IOSLoopbackExportServer: @unchecked Sendable {
     private let listenFD: Int32
     private let payload: Data
     private let etag: String
+    private let response206ETag: String
     private let truncateFirstAttemptAt: Int?
     private let fixedStatus: Int?
     private let fixedBody: Data
@@ -503,12 +679,14 @@ private final class IOSLoopbackExportServer: @unchecked Sendable {
     init(
         payload: Data,
         etag: String,
+        response206ETag: String? = nil,
         truncateFirstAttemptAt: Int? = nil,
         fixedStatus: Int? = nil,
         fixedBody: Data = Data()
     ) throws {
         self.payload = payload
         self.etag = etag
+        self.response206ETag = response206ETag ?? etag
         self.truncateFirstAttemptAt = truncateFirstAttemptAt
         self.fixedStatus = fixedStatus
         self.fixedBody = fixedBody
@@ -608,7 +786,7 @@ private final class IOSLoopbackExportServer: @unchecked Sendable {
             let spec = range.dropFirst(6)
             let start = Int(spec.split(separator: "-").first ?? "0") ?? 0
             let slice = self.payload[start..<total]
-            let head = "HTTP/1.1 206 Partial Content\r\nContent-Type: application/zip\r\nContent-Length: \(slice.count)\r\nContent-Range: bytes \(start)-\(total - 1)/\(total)\r\nETag: \(self.etag)\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
+            let head = "HTTP/1.1 206 Partial Content\r\nContent-Type: application/zip\r\nContent-Length: \(slice.count)\r\nContent-Range: bytes \(start)-\(total - 1)/\(total)\r\nETag: \(self.response206ETag)\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
             Self.writeAll(fd: fd, data: Data(head.utf8))
             Self.writeAll(fd: fd, data: Data(slice))
             return
