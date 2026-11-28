@@ -10,6 +10,7 @@ private nonisolated final class StubFolderClock: FolderClock, @unchecked Sendabl
     private let lock = NSLock()
     private var _ms: Int64
     private let offset: Int
+    var timeZone: TimeZone { TimeZone(secondsFromGMT: self.offset)! }
 
     init(ms: Int64, offsetSeconds: Int = 0) {
         self._ms = ms
@@ -66,8 +67,10 @@ private nonisolated final class StubFoldersTransport: FoldersTransport, @uncheck
     func uploadSegment(
         _ delivery: FolderSegmentDelivery,
         supported: FolderSupportedList,
+        canSend: @escaping @Sendable () async -> Bool,
         readContent: @escaping @Sendable (FolderStagedContentFile) -> Data?
     ) async -> FolderDeliveryOutcome {
+        guard await canSend() else { return .hold }
         // Exercise content reading just like the live client does.
         for staged in delivery.contentFiles {
             _ = readContent(staged)
@@ -213,13 +216,42 @@ final class FoldersTests: XCTestCase {
         assertClass("docx", 120_000, expectedKind: .other, expectedDelivery: .metadataOnly)
         assertClass("bin", 10_000, expectedKind: .other, expectedDelivery: .metadataOnly)
         // Over 64 MiB -> metadataOnly even for PDF.
-        assertClass("pdf", supported.maxContentBytes + 1, expectedKind: .document, expectedDelivery: .metadataOnly)
+        assertClass("pdf", supported.maxContentBytes + 1, kinds: FolderKinds(other: false), expectedKind: .document, expectedDelivery: .metadataOnly)
         // Turning off documents with `other` on falls back to metadataOnly; both off ignores.
         var noDocs = allOn
         noDocs.documents = false
         assertClass("pdf", 10_000, kinds: noDocs, expectedKind: .document, expectedDelivery: .metadataOnly)
         noDocs.other = false
         assertClass("pdf", 10_000, kinds: noDocs, expectedKind: .document, expectedDelivery: .ignore)
+    }
+
+    @MainActor
+    func testStructuredExportLargerThanANoteKeepsItsTranscriptBytes() async throws {
+        let root = try self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Exports", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let sentence = String(repeating: "conversation ", count: 512)
+        let rows = (0..<640).map { "\($0 * 1000)\t\($0 * 1000 + 999)\t\(sentence)" }
+        let data = Data(("start\tend\ttext\n" + rows.joined(separator: "\n")).utf8)
+        var rules = FolderSupportedList.default
+        rules.transcriptExtensions.insert("tsv")
+        XCTAssertGreaterThan(UInt64(data.count), rules.maxNoteBytes)
+        let now: Int64 = 1_795_700_000_000
+        try self.writeFile(folder.appendingPathComponent("interview.tsv"), data: data, mtimeMs: now - 600_000)
+        let transport = StubFoldersTransport()
+        transport.supported = rules
+        let engine = FoldersEngine(store: FoldersStore(fileURL: root.appendingPathComponent("ledger.json")),
+                                   transport: transport, clock: StubFolderClock(ms: now))
+        engine.isPairedProvider = { true }
+        let selected = await engine.handlePickedFolder(url: folder)
+        let id = try XCTUnwrap(selected)
+        await engine.refreshJournalMetadata()
+        engine.setKinds(folderID: id, kinds: FolderKinds(notes: false, other: false))
+        let confirmed = await engine.confirmFolder(folderID: id, range: .everything)
+        XCTAssertTrue(confirmed)
+        XCTAssertEqual(transport.recordedUploads().flatMap(\.contentFiles).map(\.relPath), ["interview.tsv"])
+        XCTAssertEqual(engine.folder(id: id)?.files["interview.tsv"]?.kind, .transcript)
     }
 
     func testStructuredAndLongMarkdownPromoteToDocument() {
@@ -273,6 +305,20 @@ final class FoldersTests: XCTestCase {
         XCTAssertNotNil(id.range(of: "^[a-z0-9][a-z0-9_-]{0,63}$", options: .regularExpression))
     }
 
+    func testRangeUsesCivilMidnightAcrossDSTAndMonthEnds() throws {
+        let tz = try XCTUnwrap(TimeZone(identifier: "America/Denver"))
+        let iso = ISO8601DateFormatter()
+        func ms(_ s: String) throws -> Int64 {
+            Int64(try XCTUnwrap(iso.date(from: s)).timeIntervalSince1970 * 1_000)
+        }
+        let now = try ms("2024-08-31T17:45:00Z")
+        XCTAssertEqual(FolderBackfillRange.fromToday.startMs(nowMs: now, timeZone: tz), try ms("2024-08-31T06:00:00Z"))
+        XCTAssertEqual(FolderBackfillRange.last30Days.startMs(nowMs: now, timeZone: tz), try ms("2024-08-01T06:00:00Z"))
+        XCTAssertEqual(FolderBackfillRange.last6Months.startMs(nowMs: now, timeZone: tz), try ms("2024-02-29T07:00:00Z"))
+        let leap = try ms("2024-02-29T18:00:00Z")
+        XCTAssertEqual(FolderBackfillRange.lastYear.startMs(nowMs: leap, timeZone: tz), try ms("2023-02-28T07:00:00Z"))
+    }
+
     // MARK: - Protocol-v3 Wire Conformance
 
     func testParsesSupportedFacetsAndEstimatePayloads() throws {
@@ -315,6 +361,36 @@ final class FoldersTests: XCTestCase {
         XCTAssertTrue(parsed.transcriptExtensions.contains("vtt"))
         XCTAssertTrue(parsed.convertibleImageExtensions.contains("heic"))
 
+        let border = String(repeating: "=", count: 62)
+        let examples: [(String, String)] = [
+            ("log", "--- Log opened Tue Sep 3 00:00:00 2024\n00:00 -!- lio has joined\n00:01 <@lio> Ready.\n00:01 < val> Over here.\n00:02 <@lio> Coming."),
+            ("txt", "\(border)\nGuild: Potters\nChannel: firing\n\(border)\n[4/7/2025 10:02 AM] lio\nReady.\n[4/7/2025 10:03 AM] val\nComing.\n\(border)\nExported 2 message(s)\n\(border)"),
+            ("txt", "Unknown Speaker  0:04\nThe wind is picking up.\nUnknown Speaker  2:13\nThe smaller boats have tied up.\nTranscribed by https://otter.ai"),
+            ("txt", "\u{200e}[17/08/2025, 09:01:01] Pia: Where is the shelf?\n[17/08/2025, 09:01:03] Ivo: Around the corner."),
+            ("txt", "8/17/25, 9:01 AM - Pia: Where is it?\n8/17/25, 9:02\u{202f}AM - Ivo: At the shop."),
+            ("json", #"{"language":"en","text":"hi","segments":[{"start":0,"end":1,"text":"hi"}]}"#),
+            ("json", #"{"text":"hi","segments":[{"speaker":"A","start":0,"end":2,"text":"hi"}]}"#),
+            ("json", #"{"version":"1.0","segments":[{"startTime":0,"endTime":1,"body":"hi"}]}"#),
+            ("json", #"[{"type":"message","ts":"1730000000.000123","user":"A","text":"hi"}]"#),
+            ("json", #"{"type":"personal_chat","messages":[{"type":"message","date_unixtime":"1730000000","text":"hi"}]}"#),
+            ("tsv", "start\tend\ttext\n0\t120\tReady."),
+            ("csv", "Speaker,Start Time,End Time,Sentence\nA,00:01,00:03,\"Hello, there\""),
+            ("html", #"<div class="page_body chat_page"><div class="history"><div class="message default"><div class="text">Hi</div></div></div></div>"#),
+            ("md", "**User:** Hello\n**Assistant:** Here I am."),
+            ("txt", "10:07:10 From Ivo : Hold it.\n10:07:12 From Pia to Everyone : Holding.")
+        ]
+        for (ext, item) in examples {
+            XCTAssertTrue(FolderTranscriptLayout.recognizes(ext, data: Data(item.utf8)))
+        }
+        for (ext, item) in [("json", #"{"rows":[{"text":"hi"}]}"#), ("csv", "name,items\nA,2"),
+                            ("tsv", "start\tend\ttext\nabc\t123\tbroken"), ("html", "<p>message history text</p>"),
+                            ("txt", "Unknown Speaker  0:04\nWind.\nUnknown Speaker  2:13\nBoats."),
+                            ("txt", "I meant to find this later.\nTranscribed by https://otter.ai"),
+                            ("txt", "Guild: Potters\nChannel: firing\n[4/7/2025 10:02 AM] lio\nReady."),
+                            ("log", "Kiln maintenance notes\n00:01 <@lio> Ready.\n00:02 < val> Over here.\n00:03 <@lio> Coming."),
+                            ("txt", "Groceries:\nBread\nMilk")] {
+            XCTAssertFalse(FolderTranscriptLayout.recognizes(ext, data: Data(item.utf8)))
+        }
         let facetsRaw = Data("""
         {
           "facets": [
@@ -440,12 +516,17 @@ final class FoldersTests: XCTestCase {
             ]
         )
 
+        XCTAssertThrowsError(try FoldersWire.buildMultipartBody(
+            delivery: delivery, supported: .default, boundary: "BOUNDARY",
+            readContent: { _ in nil }
+        ), "a cached note cannot be sent once its file has disappeared")
+
         let built = try FoldersWire.buildMultipartBody(
             delivery: delivery,
             supported: .default,
             boundary: "BOUNDARY",
             readContent: { staged in
-                staged.eventID == "ev-gif" ? gifBytes : nil
+                staged.eventID == "ev-gif" ? gifBytes : Data("hello world\n".utf8)
             }
         )
 
@@ -651,8 +732,15 @@ final class FoldersTests: XCTestCase {
         try self.writeFile(keptURL, data: Data("keep me".utf8), mtimeMs: t0 + 1_000)
         try self.writeFile(tempURL, data: Data("ephemeral".utf8), mtimeMs: t0 + 2_000)
         await engine.scanAll()
+        let metadataOnly = folderDir.appendingPathComponent("download.bin")
+        try self.writeFile(metadataOnly, data: Data([1]), mtimeMs: t0 + 3_000)
+        await engine.scanAll()
         try FileManager.default.removeItem(at: tempURL)
+        try FileManager.default.removeItem(at: metadataOnly)
         clock.advance(ms: 310_000)
+        // Select the upload before another directory listing has had a chance to reconcile.
+        let beforeRescan = await engine.nextDelivery()
+        XCTAssertEqual(beforeRescan?.events.map(\.relPath), ["kept.md"])
         await engine.scanAll()
         await engine.drainPending()
 
@@ -691,10 +779,13 @@ final class FoldersTests: XCTestCase {
         XCTAssertEqual(transport.recordedUploads().count, 3, "paused folder must not send")
         XCTAssertEqual(engine.folder(id: id)?.pending.count, 1, "paused folder must still track changes")
 
+        engine.setKinds(folderID: id, kinds: FolderKinds(notes: false))
         await engine.resume(folderID: id)
+        XCTAssertTrue(transport.recordedUploads().last?.contentFiles.isEmpty == true)
         XCTAssertEqual(transport.recordedUploads().count, 4, "resuming must immediately deliver held changes")
 
         // Refused corrupt PDF falls back to details-only (`E4`).
+        engine.setKinds(folderID: id, kinds: FolderKinds(other: false))
         let corruptURL = folderDir.appendingPathComponent("corrupt.pdf")
         try self.writeFile(corruptURL, data: Data("not a pdf".utf8), mtimeMs: clock.nowMs())
         clock.advance(ms: 310_000)
@@ -706,14 +797,23 @@ final class FoldersTests: XCTestCase {
         XCTAssertEqual(transport.recordedUploads()[5].events[0].delivery, .metadataOnly)
         XCTAssertTrue(transport.recordedUploads()[5].contentFiles.isEmpty)
 
-        // Pairing principle 9: restartFirstSetup keeps folders/kinds/facet and resets queue/delivered.
+        // Waiting material follows the new pairing. A separate setup is still required for history.
+        let held = folderDir.appendingPathComponent("waiting.md")
+        try self.writeFile(held, data: Data("held for pairing".utf8), mtimeMs: clock.nowMs())
+        clock.advance(ms: 310_000)
+        await engine.scanAll()
         engine.setFacet(folderID: id, facet: FolderFacet(name: "work", title: "Work"))
         engine.restartFirstSetup()
         let reset = try XCTUnwrap(engine.folder(id: id))
         XCTAssertEqual(reset.mode, .settingUp)
         XCTAssertTrue(reset.returning)
         XCTAssertEqual(reset.facet?.name, "work")
-        XCTAssertTrue(reset.pending.isEmpty)
+        XCTAssertEqual(reset.pending.map(\.relPath), ["waiting.md"])
+        XCTAssertEqual(engine.waitingCount, 1)
+        let refreshed = await engine.backgroundRefresh()
+        XCTAssertTrue(refreshed)
+        XCTAssertEqual(transport.recordedUploads().last?.events.map(\.relPath), ["waiting.md"])
+        XCTAssertEqual(engine.folder(id: id)?.mode, .settingUp)
         XCTAssertTrue(reset.files.values.allSatisfy { !$0.deliveredToJournal })
 
         // Pairing principle 8: ledger JSON stores zero journal identity.

@@ -3459,9 +3459,9 @@ ios.folders.off = this folder is off. what's already in your journal stays.
 
 ios.folders.stays = what's already in your journal stays if you delete a file from the folder, pause, or turn this off.
 
-ios.folders.otheron = with other files on, kinds you turned off and files over 64 MB come in as names and details only.
+ios.folders.otheron = for files outside the kinds you choose, including unrecognized file types, only names and details go into your journal. files of the kinds you choose that are too large or can't be read also come in as names and details.
 
-ios.folders.otheroff = only files of the kinds you chose under 64 MB come in.
+ios.folders.otheroff = only the kinds you choose go into your journal. if one of those files is too large or can't be read, only its name and details go in.
 
 ios.folders.needattentionmany = { $count } folders need attention
 

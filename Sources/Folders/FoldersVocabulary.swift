@@ -104,7 +104,7 @@ nonisolated enum FoldersVocabulary {
     }
     static func previewHeader(count: Int, start: String?, end: String?, locale: Locale = .current) -> String {
         let items = Self.itemCount(count, locale: locale)
-        if let start, let end, count > 0 {
+        if let start, let end {
             return AppStrings.ios_folders_previewspan(items, start, end)
         }
         return items

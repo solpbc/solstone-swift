@@ -180,23 +180,19 @@ nonisolated enum FolderBackfillRange: String, Codable, CaseIterable, Equatable, 
 
     var id: String { self.rawValue }
 
-    func startMs(nowMs: Int64, offsetSeconds: Int) -> Int64 {
-        let dayMs: Int64 = 86_400_000
+    func startMs(nowMs: Int64, timeZone: TimeZone) -> Int64 {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let today = calendar.startOfDay(for: Date(timeIntervalSince1970: Double(nowMs) / 1_000))
+        let start: Date?
         switch self {
-        case .last30Days:
-            return nowMs - 30 * dayMs
-        case .last6Months:
-            return nowMs - 183 * dayMs
-        case .lastYear:
-            return nowMs - 365 * dayMs
-        case .everything:
-            return Int64.min
-        case .fromToday:
-            let offsetMs = Int64(offsetSeconds) * 1_000
-            let local = nowMs &+ offsetMs
-            let rem = ((local % dayMs) + dayMs) % dayMs
-            return local - rem - offsetMs
+        case .last30Days: start = calendar.date(byAdding: .day, value: -30, to: today)
+        case .last6Months: start = calendar.date(byAdding: .month, value: -6, to: today)
+        case .lastYear: start = calendar.date(byAdding: .year, value: -1, to: today)
+        case .fromToday: start = today
+        case .everything: return Int64.min
         }
+        return Int64((start ?? today).timeIntervalSince1970 * 1_000)
     }
 }
 
@@ -405,6 +401,7 @@ nonisolated struct FolderStamp: Equatable, Sendable {
 
 /// Clock abstraction for deterministic five-minute windowing and cool-down tests.
 nonisolated protocol FolderClock: Sendable {
+    var timeZone: TimeZone { get }
     func nowMs() -> Int64
     func offsetSeconds(at ms: Int64) -> Int
 }
@@ -423,7 +420,7 @@ nonisolated extension FolderClock {
 nonisolated struct SystemFolderClock: FolderClock {
     var timeZone: TimeZone
 
-    init(timeZone: TimeZone = .current) {
+    init(timeZone: TimeZone = .autoupdatingCurrent) {
         self.timeZone = timeZone
     }
 
@@ -470,6 +467,7 @@ nonisolated struct FolderPendingEvent: Codable, Equatable, Sendable {
     var metadata: FolderPlatformMetadata
     var contentHash: String? = nil
     var notePayload: String? = nil
+    var fallbackDetails: Bool?
     var isRevision: Bool = false
     var backfill: Bool = false
     var retryAtMs: Int64? = nil
@@ -509,6 +507,24 @@ nonisolated struct FolderRecord: Codable, Equatable, Identifiable, Sendable {
     var canonicalPath: String
     var isCloudProvider: Bool = false
     var mode: FolderMode = .settingUp
+    var pausedBeforeSetup: Bool?
+    var canDeliver: Bool { mode == .on || (mode == .settingUp && pausedBeforeSetup != true) }
+
+    mutating func applyKindChoices() {
+        let selected = kinds
+        pending = pending.compactMap { event in
+            if selected.isEnabled(for: event.kind) { return event }
+            guard selected.other else { return nil }
+            var details = event
+            details.delivery = .metadataOnly
+            details.contentHash = nil
+            details.notePayload = nil
+            return details
+        }
+        let remaining = pending.filter(\.backfill).count
+        backfillTotal = remaining > 0 ? backfillDone + remaining : 0
+        if remaining == 0 { backfillDone = 0 }
+    }
     var returning: Bool = false
     var kinds: FolderKinds = .allOn
     var facet: FolderFacet? = nil

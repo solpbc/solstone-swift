@@ -32,6 +32,7 @@ final class FoldersEngine {
     private let intake: SourceIntakeStore?
     private let obsidianVaultProvider: @MainActor () -> (canonicalPath: String, name: String)?
 
+    private var pairingGeneration: UInt64 = 0
     var isPairedProvider: @MainActor () -> Bool = { false }
     var isConnectedProvider: @MainActor () -> Bool = { true }
 
@@ -74,6 +75,7 @@ final class FoldersEngine {
         self.clock = clock
         self.intake = intake
         self.obsidianVaultProvider = obsidianVaultProvider
+        for index in store.ledger.folders.indices { store.ledger.folders[index].applyKindChoices() }
     }
 
     var folders: [FolderRecord] {
@@ -90,14 +92,14 @@ final class FoldersEngine {
     var isConnected: Bool { self.isConnectedProvider() }
 
     var wantsBackgroundRefresh: Bool {
-        self.store.ledger.folders.contains { $0.mode == .on || $0.mode == .paused }
+        self.store.ledger.folders.contains { $0.mode == .on || $0.mode == .paused || ($0.canDeliver && !$0.pending.isEmpty) }
     }
 
     /// Pending events waiting to reach the journal across active (`on`) folders.
     var waitingCount: Int {
         _ = self.revision
         return self.store.ledger.folders
-            .filter { $0.mode == .on }
+            .filter(\.canDeliver)
             .reduce(0) { $0 + $1.pending.count }
     }
 
@@ -106,7 +108,7 @@ final class FoldersEngine {
         _ = self.revision
         let capabilityBlocked = self.capabilityListed == false
         return self.store.ledger.folders
-            .filter { $0.mode == .on }
+            .filter(\.canDeliver)
             .reduce(0) { acc, folder in
                 if capabilityBlocked || folder.attention != nil {
                     return acc + folder.pending.count
@@ -393,6 +395,7 @@ final class FoldersEngine {
     func setKinds(folderID: String, kinds: FolderKinds) {
         guard let idx = self.store.ledger.folders.firstIndex(where: { $0.id == folderID }) else { return }
         self.store.ledger.folders[idx].kinds = kinds
+        self.store.ledger.folders[idx].applyKindChoices()
         self.previewsByFolderID.removeValue(forKey: folderID)
         self.store.save()
         self.bump()
@@ -428,6 +431,7 @@ final class FoldersEngine {
     func turnOff(folderID: String) {
         guard let idx = self.store.ledger.folders.firstIndex(where: { $0.id == folderID }) else { return }
         self.store.ledger.folders[idx].mode = .off
+        self.store.ledger.folders[idx].pausedBeforeSetup = nil
         self.store.ledger.folders[idx].pending.removeAll()
         self.store.ledger.folders[idx].backfillTotal = 0
         self.store.ledger.folders[idx].backfillDone = 0
@@ -454,20 +458,26 @@ final class FoldersEngine {
 
     /// Pairing principle 9: a new journal pairing returns active/paused folders to first setup
     /// while preserving the owner's folder bookmarks, kind switches, and facet choices.
-    /// Pending events from the old pairing never cross over.
+    /// The confirmed outbox follows the new pairing once its mark is confirmed.
     func restartFirstSetup() {
+        self.pairingGeneration &+= 1
         for idx in self.store.ledger.folders.indices {
             if self.store.ledger.folders[idx].mode == .on || self.store.ledger.folders[idx].mode == .paused {
+                self.store.ledger.folders[idx].pausedBeforeSetup = self.store.ledger.folders[idx].mode == .paused
                 self.store.ledger.folders[idx].mode = .settingUp
                 self.store.ledger.folders[idx].returning = true
             }
-            self.store.ledger.folders[idx].pending.removeAll()
+            for event in self.store.ledger.folders[idx].pending.indices {
+                self.store.ledger.folders[idx].pending[event].retryAtMs = nil
+                self.store.ledger.folders[idx].pending[event].tries = 0
+            }
             self.store.ledger.folders[idx].backfillTotal = 0
             self.store.ledger.folders[idx].backfillDone = 0
             self.store.ledger.folders[idx].spanFromMs = nil
             for key in self.store.ledger.folders[idx].files.keys {
                 self.store.ledger.folders[idx].files[key]?.deliveredToJournal = false
                 self.store.ledger.folders[idx].files[key]?.lastSentHash = nil
+                self.store.ledger.folders[idx].files[key]?.lastNoteText = nil
                 self.store.ledger.folders[idx].files[key]?.pendingRevisionSaveMs = nil
                 self.store.ledger.folders[idx].files[key]?.pendingRevisionHash = nil
             }
@@ -538,7 +548,7 @@ final class FoldersEngine {
 
         let computed: (FolderPreviewSummary, [FolderEstimateItem], Data?) = await Task.detached(priority: .userInitiated) {
             let stamp = clock.now()
-            let fromMs = range.startMs(nowMs: stamp.ms, offsetSeconds: stamp.offsetSeconds)
+            let fromMs = range.startMs(nowMs: stamp.ms, timeZone: clock.timeZone)
             let walk: FolderWalkOutcome
             do {
                 walk = try fs.walk(bookmarkData: bookmark, fallbackPath: fallbackPath, isCloudProvider: isCloud)
@@ -550,6 +560,8 @@ final class FoldersEngine {
 
             var summary = FolderPreviewSummary(
                 range: range,
+                oldestMs: range == .everything ? nil : fromMs,
+                newestMs: range == .everything ? nil : stamp.ms,
                 unreadable: walk.unreadable,
                 placeholdersSkipped: walk.placeholdersSkipped
             )
@@ -562,14 +574,14 @@ final class FoldersEngine {
                 if file.metadata.modifiedMs < fromMs { continue }
                 if alreadyDelivered.contains(file.relPath) { continue }
                 let noteBytes: Data?
-                if FoldersClassifier.isNoteCandidate(extensionLower: file.metadata.extensionLower, supported: supported),
-                   file.sizeBytes <= supported.maxNoteBytes
+                if let limit = FoldersClassifier.classificationLimit(extensionLower: file.metadata.extensionLower, supported: supported),
+                   file.sizeBytes <= limit
                 {
                     noteBytes = try? fs.readFile(
                         bookmarkData: bookmark,
                         fallbackPath: fallbackPath,
                         relPath: file.relPath,
-                        maxBytes: supported.maxNoteBytes
+                        maxBytes: limit
                     )
                 } else {
                     noteBytes = nil
@@ -674,11 +686,14 @@ final class FoldersEngine {
             return false
         }
 
+        let initial = self.store.ledger.folders[idx]
+        let generation = self.pairingGeneration
         let bookmark = self.store.ledger.folders[idx].bookmarkData
         let fallbackPath = self.store.ledger.folders[idx].canonicalPath
         let isCloud = self.store.ledger.folders[idx].isCloudProvider
         let kinds = self.store.ledger.folders[idx].kinds
         let existingFiles = self.store.ledger.folders[idx].files
+        let waitingPaths = Set(self.store.ledger.folders[idx].pending.filter { $0.verb != .removed }.map(\.relPath))
         let supported = self.supported
         let clock = self.clock
         let fs = self.fileSystem
@@ -695,7 +710,7 @@ final class FoldersEngine {
 
         let prepared: ConfirmPrepared? = await Task.detached(priority: .userInitiated) {
             let stamp = clock.now()
-            let fromMs = range.startMs(nowMs: stamp.ms, offsetSeconds: stamp.offsetSeconds)
+            let fromMs = range.startMs(nowMs: stamp.ms, timeZone: clock.timeZone)
             guard let walk = try? fs.walk(bookmarkData: bookmark, fallbackPath: fallbackPath, isCloudProvider: isCloud) else {
                 return nil
             }
@@ -703,6 +718,7 @@ final class FoldersEngine {
             var newEvents: [FolderPendingEvent] = []
 
             for file in walk.files {
+                if waitingPaths.contains(file.relPath) { continue }
                 if let existing = updatedFiles[file.relPath], existing.deliveredToJournal {
                     continue
                 }
@@ -722,14 +738,14 @@ final class FoldersEngine {
                 }
 
                 let noteBytes: Data?
-                if FoldersClassifier.isNoteCandidate(extensionLower: file.metadata.extensionLower, supported: supported),
-                   file.sizeBytes <= supported.maxNoteBytes
+                if let limit = FoldersClassifier.classificationLimit(extensionLower: file.metadata.extensionLower, supported: supported),
+                   file.sizeBytes <= limit
                 {
                     noteBytes = try? fs.readFile(
                         bookmarkData: bookmark,
                         fallbackPath: fallbackPath,
                         relPath: file.relPath,
-                        maxBytes: supported.maxNoteBytes
+                        maxBytes: limit
                     )
                 } else {
                     noteBytes = nil
@@ -816,14 +832,16 @@ final class FoldersEngine {
             )
         }.value
 
-        guard let prepared,
-              let freshIdx = self.store.ledger.folders.firstIndex(where: { $0.id == folderID })
+        guard let prepared, generation == self.pairingGeneration,
+              let freshIdx = self.store.ledger.folders.firstIndex(where: { $0.id == folderID }),
+              self.store.ledger.folders[freshIdx] == initial
         else { return false }
 
         if let refreshed = prepared.refreshedBookmark {
             self.store.ledger.folders[freshIdx].bookmarkData = refreshed
         }
-        self.store.ledger.folders[freshIdx].mode = .on
+        self.store.ledger.folders[freshIdx].mode = self.store.ledger.folders[freshIdx].pausedBeforeSetup == true ? .paused : .on
+        self.store.ledger.folders[freshIdx].pausedBeforeSetup = nil
         self.store.ledger.folders[freshIdx].returning = true
         self.store.ledger.folders[freshIdx].attention = nil
         self.store.ledger.folders[freshIdx].lastCheckedMs = prepared.nowMs
@@ -892,7 +910,7 @@ final class FoldersEngine {
     private func nextForegroundWakeDelay(defaultInterval: TimeInterval) -> TimeInterval {
         let nowMs = self.clock.nowMs()
         var delay = max(0.05, defaultInterval)
-        for folder in self.store.ledger.folders where folder.mode == .on && folder.attention == nil {
+        for folder in self.store.ledger.folders where folder.canDeliver && folder.attention == nil {
             for ev in folder.pending {
                 let dueMs = max(ev.windowEndMs, ev.retryAtMs ?? 0)
                 let deltaSec = Double(max(1_000, dueMs - nowMs)) / 1_000.0
@@ -1002,6 +1020,10 @@ final class FoldersEngine {
         let live = self.store.ledger.folders[freshIdx]
         guard live.mode == .on || live.mode == .paused else { return }
 
+        guard live.canonicalPath == snapshot.canonicalPath, live.kinds == snapshot.kinds else {
+            self.scanRequestedAgain = true
+            return
+        }
         var merged = result.record
         merged.mode = live.mode
         merged.kinds = live.kinds
@@ -1059,7 +1081,7 @@ final class FoldersEngine {
             return (nowMs, folder, 0, true)
         }
 
-        var changed = walk.refreshedBookmark != nil
+        var changed = walk.refreshedBookmark != nil || input.attention != folder.attention
         var seenPaths = Set<String>()
         var newCandidates: [FolderWalkedFile] = []
         var modifiedCandidates: [FolderWalkedFile] = []
@@ -1081,7 +1103,9 @@ final class FoldersEngine {
 
         // Only a complete listing may treat disappeared paths as renames or deletions.
         let disappearedPaths: [String] = walk.complete
-            ? folder.files.keys.filter { !seenPaths.contains($0) }.sorted()
+            ? folder.files.keys.filter { path in
+                !seenPaths.contains(path) && !walk.deferredPaths.contains(where: { path == $0 || path.hasPrefix($0 + "/") })
+            }.sorted()
             : []
 
         var matchedDisappeared = Set<String>()
@@ -1169,6 +1193,7 @@ final class FoldersEngine {
                     folder.pending.removeAll { $0.relPath == oldRel }
                     changed = true
                 } else if !old.excludedBeforeSpan {
+                    folder.pending.removeAll { $0.relPath == oldRel && $0.verb != .removed }
                     let evStamp = clock.stamp(at: nowMs)
                     let evID = folderEventID(folderID: folder.id, relPath: oldRel, verb: .removed, eventMs: nowMs)
                     folder.pending.append(FolderPendingEvent(
@@ -1198,14 +1223,14 @@ final class FoldersEngine {
         // 3. Newly appeared files.
         for file in remainingNew {
             let noteBytes: Data?
-            if FoldersClassifier.isNoteCandidate(extensionLower: file.metadata.extensionLower, supported: supported),
-               file.sizeBytes <= supported.maxNoteBytes
+            if let limit = FoldersClassifier.classificationLimit(extensionLower: file.metadata.extensionLower, supported: supported),
+               file.sizeBytes <= limit
             {
                 noteBytes = try? fileSystem.readFile(
                     bookmarkData: folder.bookmarkData,
                     fallbackPath: folder.canonicalPath,
                     relPath: file.relPath,
-                    maxBytes: supported.maxNoteBytes
+                    maxBytes: limit
                 )
             } else {
                 noteBytes = nil
@@ -1278,14 +1303,14 @@ final class FoldersEngine {
         // 4. Modified files: note edits coalesce within 5-minute window; already-delivered docs/transcripts cool down 1 hour.
         for file in modifiedCandidates {
             let noteBytes: Data?
-            if FoldersClassifier.isNoteCandidate(extensionLower: file.metadata.extensionLower, supported: supported),
-               file.sizeBytes <= supported.maxNoteBytes
+            if let limit = FoldersClassifier.classificationLimit(extensionLower: file.metadata.extensionLower, supported: supported),
+               file.sizeBytes <= limit
             {
                 noteBytes = try? fileSystem.readFile(
                     bookmarkData: folder.bookmarkData,
                     fallbackPath: folder.canonicalPath,
                     relPath: file.relPath,
-                    maxBytes: supported.maxNoteBytes
+                    maxBytes: limit
                 )
             } else {
                 noteBytes = nil
@@ -1445,6 +1470,12 @@ final class FoldersEngine {
             return (tracked.relPath, saveMs, tracked.kind, tracked.pendingRevisionHash)
         }
         for (relPath, saveMs, kind, revHash) in dueRevisions {
+            if !folder.kinds.isEnabled(for: kind) && !folder.kinds.other {
+                folder.files[relPath]?.pendingRevisionSaveMs = nil
+                folder.files[relPath]?.pendingRevisionHash = nil
+                changed = true
+                continue
+            }
             guard let meta = fileSystem.fileMetadata(
                 bookmarkData: folder.bookmarkData,
                 fallbackPath: folder.canonicalPath,
@@ -1458,7 +1489,7 @@ final class FoldersEngine {
                 previousPath: nil,
                 verb: .revised,
                 kind: kind,
-                delivery: .content,
+                delivery: folder.kinds.isEnabled(for: kind) ? .content : .metadataOnly,
                 eventMs: saveMs,
                 observedMs: nowMs,
                 offsetSeconds: evStamp.offsetSeconds,
@@ -1482,21 +1513,26 @@ final class FoldersEngine {
     /// applying delete-before-send check and 63-part chunking.
     func nextDelivery() async -> FolderSegmentDelivery? {
         let nowMs = self.clock.nowMs()
-        var best: (folderIdx: Int, window: FolderWindow)? = nil
+        var available: [(folder: FolderRecord, window: FolderWindow)] = []
 
-        for (idx, folder) in self.store.ledger.folders.enumerated() {
-            guard folder.mode == .on, folder.attention == nil else { continue }
+        for folder in self.store.ledger.folders {
+            guard folder.canDeliver, folder.attention == nil else { continue }
+            var windows = Set<FolderWindow>()
             for ev in folder.pending {
                 if ev.windowEndMs > nowMs { continue }
                 if let retryAt = ev.retryAtMs, retryAt > nowMs { continue }
-                if best == nil || ev.window > best!.window {
-                    best = (idx, ev.window)
-                }
+                if windows.insert(ev.window).inserted { available.append((folder, ev.window)) }
             }
         }
-        guard let (idx, window) = best else { return nil }
+        for (folder, window) in available.sorted(by: { $0.window > $1.window }) {
+            if let delivery = await prepareWindow(folder, window: window, nowMs: nowMs) {
+                return delivery
+            }
+        }
+        return nil
+    }
 
-        let folder = self.store.ledger.folders[idx]
+    private func prepareWindow(_ folder: FolderRecord, window: FolderWindow, nowMs: Int64) async -> FolderSegmentDelivery? {
         let candidates = folder.pending
             .filter { $0.window == window && $0.windowEndMs <= nowMs && ($0.retryAtMs == nil || $0.retryAtMs! <= nowMs) }
             .sorted {
@@ -1508,22 +1544,22 @@ final class FoldersEngine {
         let fallbackPath = folder.canonicalPath
         let fs = self.fileSystem
         let supported = self.supported
-        let trackedFiles = folder.files
 
         struct CheckedDelivery: Sendable {
-            var droppedIDs: Set<String>
-            var droppedPaths: Set<String>
             var selectedEvents: [FolderPendingEvent]
             var contentFiles: [FolderStagedContentFile]
         }
 
         let checked: CheckedDelivery = await Task.detached(priority: .utility) {
-            var droppedIDs = Set<String>()
-            var droppedPaths = Set<String>()
+            var payloadBytes: UInt64 = 0
             var selectedEvents: [FolderPendingEvent] = []
             var stagedFiles: [FolderStagedContentFile] = []
 
             for ev in candidates {
+                if selectedEvents.count >= 5_000 { break }
+                if ev.verb != .removed && !fs.fileExists(bookmarkData: bookmark, fallbackPath: fallbackPath, relPath: ev.relPath) {
+                    continue
+                }
                 if ev.delivery != .content {
                     selectedEvents.append(ev)
                     continue
@@ -1531,15 +1567,9 @@ final class FoldersEngine {
                 if stagedFiles.count >= FolderConstants.maxUploadContentParts {
                     continue
                 }
-                let exists = fs.fileExists(bookmarkData: bookmark, fallbackPath: fallbackPath, relPath: ev.relPath)
-                if !exists {
-                    let delivered = trackedFiles[ev.relPath]?.deliveredToJournal == true
-                    if !delivered {
-                        droppedIDs.insert(ev.id)
-                        droppedPaths.insert(ev.relPath)
-                        continue
-                    }
-                }
+                let size = ev.metadata.sizeBytes
+                if !stagedFiles.isEmpty && size > (96 * 1024 * 1024) - payloadBytes { continue }
+                payloadBytes += min(size, 96 * 1024 * 1024)
                 let ext = ev.metadata.extensionLower ?? ""
                 let needsConvert = (ev.kind == .screenshot || ev.kind == .photo)
                     && supported.convertibleImageExtensions.contains(ext)
@@ -1556,27 +1586,14 @@ final class FoldersEngine {
                 selectedEvents.append(ev)
             }
             return CheckedDelivery(
-                droppedIDs: droppedIDs,
-                droppedPaths: droppedPaths,
                 selectedEvents: selectedEvents,
                 contentFiles: stagedFiles
             )
         }.value
 
-        if !checked.droppedIDs.isEmpty,
-           let freshIdx = self.store.ledger.folders.firstIndex(where: { $0.id == folder.id })
-        {
-            self.store.ledger.folders[freshIdx].pending.removeAll { checked.droppedIDs.contains($0.id) }
-            for p in checked.droppedPaths {
-                self.store.ledger.folders[freshIdx].files.removeValue(forKey: p)
-            }
-            self.store.save()
-            self.bump()
-            if checked.selectedEvents.isEmpty {
-                return nil
-            }
-        }
-        guard !checked.selectedEvents.isEmpty else { return nil }
+        guard !checked.selectedEvents.isEmpty,
+              let current = self.folder(id: folder.id), current.canDeliver, current.attention == nil,
+              current.pending == folder.pending else { return nil }
 
         return FolderSegmentDelivery(
             folderID: folder.id,
@@ -1593,6 +1610,8 @@ final class FoldersEngine {
     func recordOutcome(delivery: FolderSegmentDelivery, outcome: FolderDeliveryOutcome) {
         let nowMs = self.clock.nowMs()
         guard let idx = self.store.ledger.folders.firstIndex(where: { $0.id == delivery.folderID }) else { return }
+        let pendingIDs = Set(self.store.ledger.folders[idx].pending.map(\.id))
+        guard delivery.events.allSatisfy({ pendingIDs.contains($0.id) }) else { return }
         let ids = Set(delivery.events.map(\.id))
 
         switch outcome {
@@ -1600,7 +1619,6 @@ final class FoldersEngine {
             let refusedPaths: Set<String>
             if case .deliveredWithRefusedContent(let paths) = outcome {
                 refusedPaths = Set(paths)
-                self.store.ledger.folders[idx].fallbackToDetails += paths.count
             } else {
                 refusedPaths = []
             }
@@ -1611,13 +1629,16 @@ final class FoldersEngine {
             for ev in delivery.events {
                 if refusedPaths.contains(ev.relPath) && ev.delivery == .content {
                     var metaOnly = ev
+                    self.store.ledger.folders[idx].files[ev.relPath]?.lastSentHash = ev.contentHash
                     metaOnly.delivery = .metadataOnly
+                    metaOnly.fallbackDetails = true
                     metaOnly.contentHash = nil
                     metaOnly.notePayload = nil
                     metaOnly.retryAtMs = nil
                     fallbackEvents.append(metaOnly)
                     continue
                 }
+                if ev.fallbackDetails == true { self.store.ledger.folders[idx].fallbackToDetails += 1 }
                 if ev.backfill {
                     completedBackfill += 1
                 }
@@ -1655,16 +1676,16 @@ final class FoldersEngine {
                 let ev = self.store.ledger.folders[idx].pending[i]
                 guard ids.contains(ev.id) else { continue }
                 if ev.delivery == .content && (refusedSet.isEmpty || refusedSet.contains(ev.relPath)) {
+                    self.store.ledger.folders[idx].files[ev.relPath]?.lastSentHash = ev.contentHash
                     self.store.ledger.folders[idx].pending[i].delivery = .metadataOnly
+                    self.store.ledger.folders[idx].pending[i].fallbackDetails = true
                     self.store.ledger.folders[idx].pending[i].contentHash = nil
                     self.store.ledger.folders[idx].pending[i].notePayload = nil
                     self.store.ledger.folders[idx].pending[i].retryAtMs = nil
                     converted += 1
                 }
             }
-            if converted > 0 {
-                self.store.ledger.folders[idx].fallbackToDetails += converted
-            } else {
+            if converted == 0 {
                 // Already metadata-only and still refused: drop to avoid looping.
                 self.store.ledger.folders[idx].pending.removeAll { ids.contains($0.id) }
             }
@@ -1714,7 +1735,7 @@ final class FoldersEngine {
             var deliveredAny = 0
             while !Task.isCancelled && deliveredAny < 200 {
                 guard let delivery = await self.nextDelivery() else { break }
-                guard let folder = self.store.ledger.folders.first(where: { $0.id == delivery.folderID }) else { break }
+                guard self.isPaired, let folder = self.folder(id: delivery.folderID), folder.canDeliver else { break }
                 let bookmark = folder.bookmarkData
                 let fallbackPath = folder.canonicalPath
                 let fs = self.fileSystem
@@ -1722,9 +1743,23 @@ final class FoldersEngine {
 
                 self.inFlightCount = 1
                 self.bump()
+                let generation = self.pairingGeneration
                 let outcome = await self.transport.uploadSegment(
                     delivery,
                     supported: supported,
+                    canSend: { @MainActor [weak self] in
+                        let stillPresent = await Task.detached(priority: .utility) {
+                            delivery.events.allSatisfy { event in
+                                event.verb == .removed || fs.fileExists(bookmarkData: bookmark, fallbackPath: fallbackPath, relPath: event.relPath)
+                            }
+                        }.value
+                        guard stillPresent, let self, self.isPaired, self.pairingGeneration == generation,
+                              let live = self.folder(id: delivery.folderID), live.canDeliver,
+                              live.attention == nil, live.canonicalPath == fallbackPath,
+                              live.kinds == delivery.kinds, live.facet?.name == delivery.facet else { return false }
+                        let ids = Set(live.pending.map(\.id))
+                        return delivery.events.allSatisfy { ids.contains($0.id) }
+                    },
                     readContent: { staged in
                         try? fs.readFile(
                             bookmarkData: bookmark,
@@ -1735,6 +1770,7 @@ final class FoldersEngine {
                     }
                 )
                 self.inFlightCount = 0
+                guard self.pairingGeneration == generation else { break }
                 self.recordOutcome(delivery: delivery, outcome: outcome)
                 if case .hold = outcome {
                     break

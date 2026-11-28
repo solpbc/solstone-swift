@@ -155,6 +155,9 @@ nonisolated enum FoldersClassifier {
         let fileKind: FolderFileKind
         if isScreenshot && isImage {
             fileKind = .screenshot
+        } else if supported.transcriptExtensions.contains(ext),
+                  FolderTranscriptLayout.recognizes(ext, data: noteBytes) {
+            fileKind = .transcript
         } else if supported.noteExtensions.contains(ext) {
             if sizeBytes > supported.maxNoteBytes {
                 fileKind = .document
@@ -165,8 +168,6 @@ nonisolated enum FoldersClassifier {
             }
         } else if supported.documentExtensions.contains(ext) {
             fileKind = .document
-        } else if supported.transcriptExtensions.contains(ext) {
-            fileKind = .transcript
         } else if isImage {
             fileKind = .photo
         } else {
@@ -177,8 +178,8 @@ nonisolated enum FoldersClassifier {
         let delivery: FolderDeliveryMode
         if fileKind == .other {
             delivery = kinds.other ? .metadataOnly : .ignore
-        } else if kinds.isEnabled(for: fileKind) && withinSize {
-            delivery = .content
+        } else if kinds.isEnabled(for: fileKind) {
+            delivery = withinSize ? .content : .metadataOnly
         } else if kinds.other {
             delivery = .metadataOnly
         } else {
@@ -187,10 +188,12 @@ nonisolated enum FoldersClassifier {
         return (fileKind, delivery)
     }
 
-    /// Whether a file's extension makes it a note candidate needing text inspection.
-    static func isNoteCandidate(extensionLower: String?, supported: FolderSupportedList) -> Bool {
-        guard let ext = extensionLower?.lowercased() else { return false }
-        return supported.noteExtensions.contains(ext)
+    static func classificationLimit(extensionLower: String?, supported: FolderSupportedList) -> UInt64? {
+        guard let ext = extensionLower else { return nil }
+        if FolderTranscriptLayout.structured.contains(ext), supported.transcriptExtensions.contains(ext) {
+            return min(supported.maxContentBytes, UInt64(FolderTranscriptLayout.maxBytes))
+        }
+        return supported.noteExtensions.contains(ext) ? supported.maxNoteBytes : nil
     }
 
     /// Whether a relative path is safe and valid under the protocol-v3 contract.

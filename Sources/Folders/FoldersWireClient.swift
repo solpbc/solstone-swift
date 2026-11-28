@@ -13,12 +13,17 @@ nonisolated protocol FoldersTransport: Sendable {
     func uploadSegment(
         _ delivery: FolderSegmentDelivery,
         supported: FolderSupportedList,
+        canSend: @escaping @Sendable () async -> Bool,
         readContent: @escaping @Sendable (FolderStagedContentFile) -> Data?
     ) async -> FolderDeliveryOutcome
 }
 
 /// Pure protocol-v3 wire parsing & multipart payload builder for the folder source.
 nonisolated enum FoldersWire {
+    enum BuildError: Error {
+        case refusedContent([String])
+    }
+
     /// Parse `GET /app/devices/ingest/folder/facets`.
     static func parseFacets(_ data: Data) -> [FolderFacet]? {
         struct WireFacet: Decodable {
@@ -122,12 +127,8 @@ nonisolated enum FoldersWire {
             if let h = th.structuredProseMinHeadingLevels { list.noteHeadingLevels = h }
             if let w = th.longProseMinWords { list.noteLongWords = w }
         }
-        let transcripts = norm(wire.kinds?.transcripts?.extensions)
-            .subtracting(list.noteExtensions)
-            .subtracting(list.documentExtensions)
-            .intersection(["vtt", "srt"])
-        if !transcripts.isEmpty {
-            list.transcriptExtensions = transcripts
+        if let extensions = wire.kinds?.transcripts?.extensions {
+            list.transcriptExtensions = norm(extensions)
         }
 
         let acceptedImages = norm(wire.kinds?.screenshots?.extensions)
@@ -235,6 +236,7 @@ nonisolated enum FoldersWire {
     ) throws -> (body: Data, activityFileName: String, partNames: [String]) {
         let stagedByEventID = Dictionary(uniqueKeysWithValues: delivery.contentFiles.map { ($0.eventID, $0) })
 
+        var localRefusals: [String] = []
         var companionParts: [ObserverIngestMultipartPart] = []
         var partBindingByEventID: [String: (partName: String, hash: String)] = [:]
 
@@ -247,15 +249,20 @@ nonisolated enum FoldersWire {
                 continue
             }
 
+            guard let liveBytes = readContent(staged) else { throw CocoaError(.fileReadUnknown) }
             let rawBytes: Data?
             if staged.kind == .note, let noteText = staged.notePayload {
                 rawBytes = Data(noteText.utf8)
             } else {
-                rawBytes = readContent(staged)
+                if let expected = staged.contentHash, folderSHA256Hex(liveBytes) != expected {
+                    throw CocoaError(.fileReadUnknown)
+                }
+                rawBytes = liveBytes
             }
             guard var payloadBytes = rawBytes,
                   UInt64(payloadBytes.count) <= supported.maxContentBytes
             else {
+                localRefusals.append(event.relPath)
                 continue
             }
 
@@ -267,6 +274,7 @@ nonisolated enum FoldersWire {
                         maxPixels: supported.maxImagePixels,
                         maxBytes: supported.maxContentBytes
                     ) else {
+                        localRefusals.append(event.relPath)
                         continue
                     }
                     payloadBytes = png
@@ -275,6 +283,7 @@ nonisolated enum FoldersWire {
                     if let px = FoldersImageSupport.pixelCount(in: payloadBytes),
                        px > supported.maxImagePixels
                     {
+                        localRefusals.append(event.relPath)
                         continue
                     }
                 }
@@ -291,6 +300,8 @@ nonisolated enum FoldersWire {
             ))
             partBindingByEventID[event.id] = (partName, partHash)
         }
+
+        if !localRefusals.isEmpty { throw BuildError.refusedContent(localRefusals) }
 
         // Build UTF-8 LF-terminated activity JSONL lines.
         var jsonlData = Data()
@@ -502,6 +513,7 @@ nonisolated final class AuthenticatedFoldersClient: FoldersTransport, @unchecked
     func uploadSegment(
         _ delivery: FolderSegmentDelivery,
         supported: FolderSupportedList,
+        canSend: @escaping @Sendable () async -> Bool,
         readContent: @escaping @Sendable (FolderStagedContentFile) -> Data?
     ) async -> FolderDeliveryOutcome {
         guard await self.admitSend(),
@@ -521,11 +533,13 @@ nonisolated final class AuthenticatedFoldersClient: FoldersTransport, @unchecked
                 )
             }.value
             builtBody = built.body
+        } catch FoldersWire.BuildError.refusedContent(let paths) {
+            return .allFilesRefused(paths)
         } catch {
             return .hold
         }
 
-        guard await self.admitSend(),
+        guard await canSend(), await self.admitSend(),
               await self.pairingGeneration() == capturedGen
         else { return .hold }
 

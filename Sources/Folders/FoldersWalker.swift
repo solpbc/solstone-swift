@@ -20,6 +20,7 @@ nonisolated struct FolderWalkOutcome: Equatable, Sendable {
     var unreadable: Int
     var deferredPartials: Int
     var placeholdersSkipped: Int
+    var deferredPaths: Set<String> = []
     /// Deletion & rename reconciliation only runs when `complete == true`.
     var complete: Bool
     var refreshedBookmark: Data?
@@ -175,7 +176,10 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
                 for entryURL in children {
                     try Task.checkCancellation()
                     let name = entryURL.lastPathComponent
+                    let relPath = prefix.isEmpty ? name : "\(prefix)/\(name)"
                     if FoldersClassifier.isICloudStubName(name) {
+                        let original = String(name.dropFirst().dropLast(".icloud".count))
+                        outcome.deferredPaths.insert(prefix.isEmpty ? original : "\(prefix)/\(original)")
                         outcome.placeholdersSkipped += 1
                         continue
                     }
@@ -195,6 +199,7 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
                         continue
                     }
                     if (lstatBuf.st_flags & Self.sfDataless) != 0 {
+                        outcome.deferredPaths.insert(relPath)
                         outcome.placeholdersSkipped += 1
                         continue
                     }
@@ -213,6 +218,7 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
                         .ubiquitousItemDownloadingStatusKey,
                     ]), values.isUbiquitousItem == true {
                         if values.ubiquitousItemDownloadingStatus != .current {
+                            outcome.deferredPaths.insert(relPath)
                             outcome.placeholdersSkipped += 1
                             continue
                         }
@@ -225,11 +231,11 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
                         continue
                     }
                     if (statBuf.st_flags & Self.sfDataless) != 0 {
+                        outcome.deferredPaths.insert(relPath)
                         outcome.placeholdersSkipped += 1
                         continue
                     }
 
-                    let relPath = prefix.isEmpty ? name : "\(prefix)/\(name)"
                     guard FoldersClassifier.isValidRelativePath(relPath) else {
                         continue
                     }
@@ -267,7 +273,7 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
                     let createdMs = values?.creationDate.map { Int64(($0.timeIntervalSince1970 * 1_000.0).rounded(.towardZero)) }
                     let ext = FoldersClassifier.extensionLower(for: name)
                     let platformMeta = Self.collectMetadata(
-                        at: entryURL,
+                        at: entryURL, root: canonicalRoot,
                         sizeBytes: sizeBytes,
                         modifiedMs: mtimeMs,
                         createdMs: createdMs,
@@ -303,7 +309,7 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
         ) { accessible, _ in
             let fileURL = accessible.appendingPathComponent(relPath, isDirectory: false)
             guard Self.isParentConfined(fileURL: fileURL, underRoot: accessible) else { return nil }
-            return Self.readLocalNonHydrating(at: fileURL, maxBytes: maxBytes)
+            return Self.readLocalNonHydrating(at: fileURL, under: Self.canonicalPath(of: accessible), maxBytes: maxBytes)
         }
     }
 
@@ -343,7 +349,7 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
             let createdMs = values?.creationDate.map { Int64(($0.timeIntervalSince1970 * 1_000.0).rounded(.towardZero)) }
             let ext = FoldersClassifier.extensionLower(for: fileURL.lastPathComponent)
             return Self.collectMetadata(
-                at: fileURL,
+                at: fileURL, root: Self.canonicalPath(of: accessible),
                 sizeBytes: UInt64(max(0, st.st_size)),
                 modifiedMs: mtimeMs,
                 createdMs: createdMs,
@@ -389,6 +395,14 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
         NSFileCoordinator().coordinate(readingItemAt: rootURL, options: .withoutChanges, error: &coordError) { accessible in
             innerResult = Result {
                 try Task.checkCancellation()
+                // Eviction after a successful metadata probe must never trigger a download.
+                let type = IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES
+                let scope = IOPOL_SCOPE_THREAD
+                let previous = getiopolicy_np(type, scope)
+                guard previous >= 0, setiopolicy_np(type, scope, IOPOL_MATERIALIZE_DATALESS_FILES_OFF) == 0 else {
+                    throw FolderWalkError.refusedProvider
+                }
+                defer { _ = setiopolicy_np(type, scope, previous) }
                 let refreshed: Data? = stale ? (try? accessible.bookmarkData(
                     options: .minimalBookmark,
                     includingResourceValuesForKeys: nil,
@@ -403,7 +417,7 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
         return try innerResult.get()
     }
 
-    private static func readLocalNonHydrating(at url: URL, maxBytes: UInt64) -> Data? {
+    private static func readLocalNonHydrating(at url: URL, under root: String, maxBytes: UInt64) -> Data? {
         var lstatBuf = stat()
         guard lstat(url.path, &lstatBuf) == 0 else { return nil }
         if (lstatBuf.st_flags & Self.sfDataless) != 0 { return nil }
@@ -416,7 +430,10 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
             return nil
         }
 
-        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard let resolved = realpath(url.path, nil) else { return nil }
+        defer { free(resolved) }
+        guard Self.isPath(String(cString: resolved), confinedUnder: root) else { return nil }
+        let fd = open(resolved, O_RDONLY | O_NOFOLLOW_ANY | O_NONBLOCK | O_CLOEXEC)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
 
@@ -447,6 +464,11 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
                 return nil
             }
         }
+        var finalStat = stat()
+        guard fstat(fd, &finalStat) == 0, finalStat.st_size == st.st_size,
+              finalStat.st_mtimespec.tv_sec == st.st_mtimespec.tv_sec,
+              finalStat.st_mtimespec.tv_nsec == st.st_mtimespec.tv_nsec,
+              finalStat.st_nlink > 0, data.count == expected else { return nil }
         return data
     }
 
@@ -525,7 +547,7 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
 
     /// Best-effort read of macOS/iOS download origin extended attributes (`kMDItemWhereFroms` and `com.apple.quarantine`).
     static func collectMetadata(
-        at url: URL,
+        at url: URL, root: String,
         sizeBytes: UInt64,
         modifiedMs: Int64,
         createdMs: Int64?,
@@ -538,7 +560,17 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
             extensionLower: extensionLower
         )
 
-        if let rawWhere = Self.readXattr(path: url.path, name: "com.apple.metadata:kMDItemWhereFroms"),
+        guard let resolved = realpath(url.path, nil) else { return meta }
+        defer { free(resolved) }
+        guard Self.isPath(String(cString: resolved), confinedUnder: root) else { return meta }
+        let fd = open(resolved, O_RDONLY | O_NOFOLLOW_ANY | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return meta }
+        defer { close(fd) }
+        var opened = stat()
+        guard fstat(fd, &opened) == 0, (opened.st_mode & S_IFMT) == S_IFREG,
+              (opened.st_flags & Self.sfDataless) == 0 else { return meta }
+
+        if let rawWhere = Self.readXattr(fd: fd, name: "com.apple.metadata:kMDItemWhereFroms"),
            let plist = try? PropertyListSerialization.propertyList(from: rawWhere, options: [], format: nil) as? [String]
         {
             let cleaned = plist
@@ -555,7 +587,7 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
             }
         }
 
-        if let rawQuarantine = Self.readXattr(path: url.path, name: "com.apple.quarantine"),
+        if let rawQuarantine = Self.readXattr(fd: fd, name: "com.apple.quarantine"),
            let text = String(data: rawQuarantine, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
            !text.isEmpty
         {
@@ -572,12 +604,12 @@ nonisolated final class LiveFolderFileSystem: FolderFileSystem, Sendable {
         return meta
     }
 
-    private static func readXattr(path: String, name: String) -> Data? {
-        let size = getxattr(path, name, nil, 0, 0, XATTR_NOFOLLOW)
+    private static func readXattr(fd: Int32, name: String) -> Data? {
+        let size = fgetxattr(fd, name, nil, 0, 0, 0)
         guard size > 0, size <= 16_384 else { return nil }
         var data = Data(count: size)
         let readCount = data.withUnsafeMutableBytes { buf in
-            getxattr(path, name, buf.baseAddress, size, 0, XATTR_NOFOLLOW)
+            fgetxattr(fd, name, buf.baseAddress, size, 0, 0)
         }
         guard readCount > 0 else { return nil }
         if readCount < size {
