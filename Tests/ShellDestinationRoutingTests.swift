@@ -25,6 +25,8 @@ nonisolated final class ShellDestinationRoutingTests: XCTestCase {
             ("case .source(.screenshots):", "ScreenshotsSourceDetailView()"),
             ("case .source(.photos):", "PhotosSourceDetailView()"),
             ("case .source(.safari):", "SafariSourceDetailView()"),
+            ("case .source(.folders):", "FoldersListView()"),
+            ("case .folderDetail(let folderID):", "FolderDetailView(folderID: folderID)"),
             ("case .status:", "StatusPane(presentation: .detail, journalMark: self.journalMark)"),
             ("case .journal:", "InAppJournalView(mark: self.journalMark, presentation: .detail, path: self.journalPath)"),
             ("case .journalSetup:", "JournalLivesPane()"),

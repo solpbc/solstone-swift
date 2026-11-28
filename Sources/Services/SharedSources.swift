@@ -10,6 +10,12 @@ nonisolated struct SourceDeclaration: Codable, Equatable, Sendable {
     let state: String
     let detail: String?
 
+    init(source: String, state: String, detail: String? = nil) {
+        self.source = source
+        self.state = state
+        self.detail = detail
+    }
+
     init?(_ source: Source, detail: String? = nil) {
         switch source.state {
         case .active: state = "on"

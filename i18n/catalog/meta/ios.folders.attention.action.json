@@ -1,0 +1,16 @@
+{
+  "description": "Primary button on a folder needing Files re-selection.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ccb34cf1d2377793cfc30e1656f1b2fa24e3384e33e31ce094847118dfa72345",
+  "risk": "routine",
+  "auto_merge": true
+}

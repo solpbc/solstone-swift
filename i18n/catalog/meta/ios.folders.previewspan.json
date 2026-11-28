@@ -1,0 +1,29 @@
+{
+  "description": "Preview header showing item count and date range.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "items",
+      "type": "string"
+    },
+    {
+      "name": "start",
+      "type": "string"
+    },
+    {
+      "name": "end",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "fe26f25c813f36c1fe763ad595f7018543520e69d33d37bbf1ba7f52b30a13ec",
+  "risk": "routine",
+  "auto_merge": true
+}

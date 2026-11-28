@@ -1,0 +1,21 @@
+{
+  "description": "Home tile sub-line when two or more folders need attention.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "f3fcf49426dfd222c775bf3b0b927105b49605bc45a4e4222caa1216ca32573d",
+  "risk": "routine",
+  "auto_merge": true
+}

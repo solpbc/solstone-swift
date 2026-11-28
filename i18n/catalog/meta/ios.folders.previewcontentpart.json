@@ -1,0 +1,35 @@
+{
+  "description": "Preview breakdown half for files whose content will be sent.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    },
+    {
+      "name": "display",
+      "type": "string"
+    },
+    {
+      "name": "size",
+      "type": "string"
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 1000,
+  "source_revision": "5d4466b386db1a051a6c60cab12bb8f2d5cf762060a8e2c7fd139db6dae2b5e2",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

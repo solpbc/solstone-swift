@@ -1,0 +1,25 @@
+{
+  "description": "Folder detail progress line while chosen history is arriving.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "done",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "dd0c61bdd02d1db8841f9a58dc923c0b45c377b5771f2cf6a53c2d6023559200",
+  "risk": "routine",
+  "auto_merge": true
+}

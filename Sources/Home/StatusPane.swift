@@ -19,7 +19,7 @@ nonisolated enum StatusPaneIntakeColumns {
 }
 
 nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
-    case audio, location, screencast, watch, calendar, obsidian, screenshots, photos, safari, `import`
+    case audio, location, screencast, watch, calendar, obsidian, screenshots, photos, folders, safari, `import`
 
     var route: SourceRoute? {
         switch self {
@@ -31,6 +31,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .obsidian: .obsidian
         case .screenshots: .screenshots
         case .photos: .photos
+        case .folders: .folders
         case .safari: .safari
         case .import: nil
         }
@@ -46,6 +47,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .obsidian: .obsidian
         case .screenshots: .screenshots
         case .photos: .photos
+        case .folders: .folders
         case .safari: .safari
         case .import: nil
         }
@@ -61,6 +63,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .obsidian: ObsidianVocabulary.TITLE
         case .screenshots: ScreenshotsVocabulary.label
         case .photos: PhotosVocabulary.label
+        case .folders: FoldersVocabulary.label
         case .safari: SafariVocabulary.label
         case .import: SourceVocabulary.importTitle
         }
@@ -93,6 +96,7 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
         obsidianCount: Int = 0,
         screenshotsCount: Int = 0,
         photosCount: Int = 0,
+        foldersCount: Int = 0,
         safariCount: Int = 0,
         importCount: Int = 0
     ) -> Self {
@@ -105,11 +109,12 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
             StatusPaneWaitingRow(source: .obsidian, count: obsidianCount),
             StatusPaneWaitingRow(source: .screenshots, count: screenshotsCount),
             StatusPaneWaitingRow(source: .photos, count: photosCount),
+            StatusPaneWaitingRow(source: .folders, count: foldersCount),
             StatusPaneWaitingRow(source: .safari, count: safariCount),
             StatusPaneWaitingRow(source: .import, count: importCount),
         ]
         return Self(
-            total: mobileAggregateCount + watchCount + calendarCount + obsidianCount + screenshotsCount + photosCount + safariCount + importCount,
+            total: mobileAggregateCount + watchCount + calendarCount + obsidianCount + screenshotsCount + photosCount + foldersCount + safariCount + importCount,
             rows: candidates.filter { $0.count > 0 }
         )
     }
@@ -382,6 +387,7 @@ struct StatusPane: View {
     #if SOLSTONE_PHOTOS_LIBRARY
     @Environment(PhotosLibraryEngine.self) private var photosSource: PhotosLibraryEngine?
     #endif
+    @Environment(FoldersSourceHandle.self) private var foldersSourceHandle: FoldersSourceHandle?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(LocationManager.self) private var locationManager
@@ -770,6 +776,7 @@ struct StatusPane: View {
             obsidianCount: (self.obsidianTransferHolder?.pendingCount ?? 0) + (self.obsidianTransferHolder?.failedCount ?? 0),
             screenshotsCount: self.screenshotsSource?.waitingCount ?? 0,
             photosCount: self.photosWaitingCount,
+            foldersCount: self.foldersSourceHandle?.source.waitingCount ?? 0,
             safariCount: self.safariSource?.waitingCount ?? 0,
             // Import failures and ready-to-review items are never lumped into "waiting to sync".
             importCount: self.shareTransferHolder.pendingCount

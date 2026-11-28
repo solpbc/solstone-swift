@@ -1,0 +1,16 @@
+{
+  "description": "Progress note pointing to journal status.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "370040a207085403acd95ecd4db2e3d2d85a13977c69371c39ef6d46e496dd10",
+  "risk": "routine",
+  "auto_merge": true
+}

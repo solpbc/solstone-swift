@@ -1,0 +1,25 @@
+{
+  "description": "Folder list row sub-line combining item count and relative time.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "items",
+      "type": "string"
+    },
+    {
+      "name": "when",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "dbb548a8fd9ba090647a79e26fa62e2e7a30c4a4420007b371f8daea8382ce27",
+  "risk": "routine",
+  "auto_merge": true
+}

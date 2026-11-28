@@ -37,6 +37,7 @@ nonisolated enum SourceIntakeRows {
         sources.append((.photos, PhotosVocabulary.label, .source(.photos)))
         #endif
         sources.append((.obsidian, ObsidianVocabulary.TITLE, .source(.obsidian)))
+        sources.append((.folders, FoldersVocabulary.label, .source(.folders)))
         sources.append((.imports, SourceVocabulary.importTitle, ShellDestination.import))
         return sources.map { source, name, destination in
             let values = SourceIntakeFormat.status(

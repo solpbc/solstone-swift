@@ -19,6 +19,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
     case journal
     case journalSetup
     case source(SourceRoute)
+    case folderDetail(String)
     case addMore
     case `import`
     case onThisDevice
@@ -45,7 +46,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
             AppStrings.ios_home_shelftitle2()
         case .shelfAbout:
             AppStrings.ios_home_shelftitle()
-        case .status, .journal, .journalSetup, .source, .addMore, .import, .onThisDevice, .shelf,
+        case .status, .journal, .journalSetup, .source, .folderDetail, .addMore, .import, .onThisDevice, .shelf,
              .licenses, .diagnostics, .problemReports, .pairFlow:
             preconditionFailure("shelfTitle is only available for shelf destinations")
         }
@@ -65,7 +66,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
             "lifepreserver"
         case .shelfAbout:
             "sun.max"
-        case .status, .journal, .journalSetup, .source, .addMore, .import, .onThisDevice, .shelf,
+        case .status, .journal, .journalSetup, .source, .folderDetail, .addMore, .import, .onThisDevice, .shelf,
              .licenses, .diagnostics, .problemReports, .pairFlow:
             preconditionFailure("shelfGlyph is only available for shelf destinations")
         }
@@ -83,7 +84,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
             "shell.pane.shelf.help"
         case .shelfAbout:
             "shell.pane.shelf.about"
-        case .status, .journal, .journalSetup, .source, .addMore, .import, .onThisDevice, .shelf,
+        case .status, .journal, .journalSetup, .source, .folderDetail, .addMore, .import, .onThisDevice, .shelf,
              .licenses, .diagnostics, .problemReports, .pairFlow:
             preconditionFailure("shelfRowIdentifier is only available for shelf destinations")
         }
@@ -94,10 +95,16 @@ nonisolated enum ShellDestination: Hashable, Sendable {
 /// Set only on the iPad split's pane root: a pushed pane has a back button to carry,
 /// and the phone's single stack has no deck beside it.
 private struct PaneBesideDeckKey: EnvironmentKey { static let defaultValue = false }
+private struct PushShellDestinationKey: EnvironmentKey { static let defaultValue: (@MainActor (ShellDestination) -> Void)? = nil }
 extension EnvironmentValues {
     var paneBesideDeck: Bool {
         get { self[PaneBesideDeckKey.self] }
         set { self[PaneBesideDeckKey.self] = newValue }
+    }
+
+    var pushShellDestination: (@MainActor (ShellDestination) -> Void)? {
+        get { self[PushShellDestinationKey.self] }
+        set { self[PushShellDestinationKey.self] = newValue }
     }
 }
 
@@ -155,6 +162,10 @@ struct ShellDestinationView: View {
             #endif
         case .source(.safari):
             SafariSourceDetailView()
+        case .source(.folders):
+            FoldersListView()
+        case .folderDetail(let folderID):
+            FolderDetailView(folderID: folderID)
         case .status:
             StatusPane(presentation: .detail, journalMark: self.journalMark)
         case .journal:

@@ -1,0 +1,16 @@
+{
+  "description": "Default option in the optional facet picker.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "d980d7e701115d3d75822d824fe95e20babc7795aa99b51c60f96c96d7ad7c52",
+  "risk": "routine",
+  "auto_merge": true
+}

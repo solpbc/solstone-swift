@@ -1,0 +1,16 @@
+{
+  "description": "Helper line when no facet is selected.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "252d70d96cebbbfdb238369cfe45d37528a19833c377cf280c18b6957db421dc",
+  "risk": "routine",
+  "auto_merge": true
+}

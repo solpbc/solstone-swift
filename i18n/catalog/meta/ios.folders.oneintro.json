@@ -1,0 +1,21 @@
+{
+  "description": "Description of what a single configured folder takes in.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "folder",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "d009e979f062282090b6dd22197b0539b6675a0d69f415b4f97d7f9ddad8dfc9",
+  "risk": "routine",
+  "auto_merge": true
+}

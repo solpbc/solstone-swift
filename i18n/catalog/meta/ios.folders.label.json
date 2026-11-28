@@ -1,0 +1,16 @@
+{
+  "description": "Label for the folders source on Home, Add More, Status, and its pages.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "c7beae075ebd340fbe1649b9a37361ed2a5743b8f21533e98d9c3654789daea1",
+  "risk": "routine",
+  "auto_merge": true
+}

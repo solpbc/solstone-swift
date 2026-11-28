@@ -1,0 +1,16 @@
+{
+  "description": "Reason line when a folder is turned off.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "8d571eb57a284d71577655eaa3aad8fd74ffef13b8fac9128427a391d6744a47",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -295,6 +295,7 @@ nonisolated extension SourceKind {
         case .obsidian: "doc.text"
         case .screenshots: "camera.viewfinder"
         case .photos: "photo.on.rectangle.angled"
+        case .folders: "folder"
         }
     }
 }

@@ -1,0 +1,16 @@
+{
+  "description": "Fallback note when unpaired during preview.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "7cf3a3c45e5b252542a1cf614fd7271597b92e7b539631f2fd94fdb9571ebf0c",
+  "risk": "routine",
+  "auto_merge": true
+}

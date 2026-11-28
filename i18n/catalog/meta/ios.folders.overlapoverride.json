@@ -1,0 +1,16 @@
+{
+  "description": "Explicit override button to add an overlapping folder anyway.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "7058ed35545ffd4d992e3ecd76ca7933a508d932696579a5ceb6d4a0f6118e8e",
+  "risk": "routine",
+  "auto_merge": true
+}

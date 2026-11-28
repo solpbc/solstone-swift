@@ -1,0 +1,16 @@
+{
+  "description": "Reason line when syncing is paused for one folder.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "711fa212469795d99816d045eb6872c393b9e82200e16d9831f2744c02091afa",
+  "risk": "routine",
+  "auto_merge": true
+}

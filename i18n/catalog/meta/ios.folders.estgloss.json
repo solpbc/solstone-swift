@@ -1,0 +1,16 @@
+{
+  "description": "Explanatory gloss below the backfill estimate.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ce46dabaa0caa49288bbb5362392e99f015c809543da03bd568a4c53b6725587",
+  "risk": "routine",
+  "auto_merge": true
+}

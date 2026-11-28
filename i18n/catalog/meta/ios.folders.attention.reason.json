@@ -1,0 +1,21 @@
+{
+  "description": "Detail page reason when a folder's Files bookmark needs attention.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "folder",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "38407276b22626a312933487aa784c2b596c95e8a084b1002a191089807fb705",
+  "risk": "routine",
+  "auto_merge": true
+}

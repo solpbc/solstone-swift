@@ -18,6 +18,7 @@ struct SharedSourceLifecycle: ViewModifier {
     #if SOLSTONE_PHOTOS_LIBRARY
     @Environment(PhotosLibrarySourceHandle.self) private var photos: PhotosLibrarySourceHandle?
     #endif
+    @Environment(FoldersSourceHandle.self) private var folders: FoldersSourceHandle?
     @Environment(SafariSourceModel.self) private var safari: SafariSourceModel?
     @Environment(WatchLink.self) private var watchLink
     @WatchPipelineInputReader private var watch
@@ -58,6 +59,9 @@ struct SharedSourceLifecycle: ViewModifier {
            !transfer.choosingVault,
            let entry = SourceDeclaration(makeObsidianSource(obsidian.source, isJournalPaired: true), detail: vault.vaultName) {
             declarations.append(entry)
+        }
+        if let folders {
+            declarations.append(contentsOf: folders.source.sourceDeclarations(nonFolderCount: declarations.count))
         }
         return Inputs(identity: identity, link: connection, declarations: declarations)
     }

@@ -1,0 +1,16 @@
+{
+  "description": "Fact shown when other files metadata-only tracking is enabled.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "b24fbbdcae2b2b3ab4386a850fd135b7f70d6b2024fe12eaacf377104413a065",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1192,6 +1192,158 @@ nonisolated enum AppStrings {
     static func ios_display_transfersegmentrepairaudioissue_unreadableaudio_resource() -> LocalizedStringResource { resource("m696f732e646973706c61792e7472616e736665727365676d656e74726570616972617564696f69737375652e756e7265616461626c65617564696f") }
     static func ios_display_transfersegmentrepairaudioissue_writefailure() -> String { render("m696f732e646973706c61792e7472616e736665727365676d656e74726570616972617564696f69737375652e77726974656661696c757265", []) }
     static func ios_display_transfersegmentrepairaudioissue_writefailure_resource() -> LocalizedStringResource { resource("m696f732e646973706c61792e7472616e736665727365676d656e74726570616972617564696f69737375652e77726974656661696c757265") }
+    static func ios_folders_addfolder() -> String { render("m696f732e666f6c646572732e616464666f6c646572", []) }
+    static func ios_folders_addfolder_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e616464666f6c646572") }
+    static func ios_folders_addfolderplus() -> String { render("m696f732e666f6c646572732e616464666f6c646572706c7573", []) }
+    static func ios_folders_addfolderplus_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e616464666f6c646572706c7573") }
+    static func ios_folders_alreadyadded(_ folder: String) -> String { render("m696f732e666f6c646572732e616c72656164796164646564", [folder]) }
+    static func ios_folders_attention_action() -> String { render("m696f732e666f6c646572732e617474656e74696f6e2e616374696f6e", []) }
+    static func ios_folders_attention_action_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e617474656e74696f6e2e616374696f6e") }
+    static func ios_folders_attention_reason(_ folder: String) -> String { render("m696f732e666f6c646572732e617474656e74696f6e2e726561736f6e", [folder]) }
+    static func ios_folders_attention_tile(_ folder: String) -> String { render("m696f732e666f6c646572732e617474656e74696f6e2e74696c65", [folder]) }
+    static func ios_folders_backfillstatus() -> String { render("m696f732e666f6c646572732e6261636b66696c6c737461747573", []) }
+    static func ios_folders_backfillstatus_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6261636b66696c6c737461747573") }
+    static func ios_folders_bringinmany(_ count: String) -> String { render("m696f732e666f6c646572732e6272696e67696e6d616e79", [count]) }
+    static func ios_folders_bringinolder() -> String { render("m696f732e666f6c646572732e6272696e67696e6f6c646572", []) }
+    static func ios_folders_bringinolder_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6272696e67696e6f6c646572") }
+    static func ios_folders_bringinone() -> String { render("m696f732e666f6c646572732e6272696e67696e6f6e65", []) }
+    static func ios_folders_bringinone_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6272696e67696e6f6e65") }
+    static func ios_folders_cantreadmany(_ count: String) -> String { render("m696f732e666f6c646572732e63616e74726561646d616e79", [count]) }
+    static func ios_folders_cantreadone() -> String { render("m696f732e666f6c646572732e63616e74726561646f6e65", []) }
+    static func ios_folders_cantreadone_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e63616e74726561646f6e65") }
+    static func ios_folders_checkingfolder() -> String { render("m696f732e666f6c646572732e636865636b696e67666f6c646572", []) }
+    static func ios_folders_checkingfolder_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e636865636b696e67666f6c646572") }
+    static func ios_folders_chooseatleastone() -> String { render("m696f732e666f6c646572732e63686f6f736561746c656173746f6e65", []) }
+    static func ios_folders_chooseatleastone_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e63686f6f736561746c656173746f6e65") }
+    static func ios_folders_choosefolder() -> String { render("m696f732e666f6c646572732e63686f6f7365666f6c646572", []) }
+    static func ios_folders_choosefolder_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e63686f6f7365666f6c646572") }
+    static func ios_folders_estdays(_ count: Int, _ display: String) -> String { render("m696f732e666f6c646572732e65737464617973", [Int64(count), display, String(count)]) }
+    static func ios_folders_estgloss() -> String { render("m696f732e666f6c646572732e657374676c6f7373", []) }
+    static func ios_folders_estgloss_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e657374676c6f7373") }
+    static func ios_folders_estheading() -> String { render("m696f732e666f6c646572732e65737468656164696e67", []) }
+    static func ios_folders_estheading_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e65737468656164696e67") }
+    static func ios_folders_estoffline() -> String { render("m696f732e666f6c646572732e6573746f66666c696e65", []) }
+    static func ios_folders_estoffline_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6573746f66666c696e65") }
+    static func ios_folders_estsegments(_ count: Int, _ display: String) -> String { render("m696f732e666f6c646572732e6573747365676d656e7473", [Int64(count), display, String(count)]) }
+    static func ios_folders_estthoughts(_ count: Int, _ display: String) -> String { render("m696f732e666f6c646572732e65737474686f7567687473", [Int64(count), display, String(count)]) }
+    static func ios_folders_estunpaired() -> String { render("m696f732e666f6c646572732e657374756e706169726564", []) }
+    static func ios_folders_estunpaired_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e657374756e706169726564") }
+    static func ios_folders_estvalues(_ segments: String, _ days: String, _ thoughts: String) -> String { render("m696f732e666f6c646572732e65737476616c756573", [segments, days, thoughts]) }
+    static func ios_folders_facetheading() -> String { render("m696f732e666f6c646572732e666163657468656164696e67", []) }
+    static func ios_folders_facetheading_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e666163657468656164696e67") }
+    static func ios_folders_facethelpactive(_ facet: String) -> String { render("m696f732e666f6c646572732e666163657468656c70616374697665", [facet]) }
+    static func ios_folders_facethelpnone() -> String { render("m696f732e666f6c646572732e666163657468656c706e6f6e65", []) }
+    static func ios_folders_facethelpnone_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e666163657468656c706e6f6e65") }
+    static func ios_folders_facethelpsetup(_ facet: String) -> String { render("m696f732e666f6c646572732e666163657468656c707365747570", [facet]) }
+    static func ios_folders_facetnone() -> String { render("m696f732e666f6c646572732e66616365746e6f6e65", []) }
+    static func ios_folders_facetnone_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e66616365746e6f6e65") }
+    static func ios_folders_facetoffline() -> String { render("m696f732e666f6c646572732e66616365746f66666c696e65", []) }
+    static func ios_folders_facetoffline_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e66616365746f66666c696e65") }
+    static func ios_folders_facetunpaired() -> String { render("m696f732e666f6c646572732e6661636574756e706169726564", []) }
+    static func ios_folders_facetunpaired_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6661636574756e706169726564") }
+    static func ios_folders_fallbackmany(_ count: String) -> String { render("m696f732e666f6c646572732e66616c6c6261636b6d616e79", [count]) }
+    static func ios_folders_fallbackone() -> String { render("m696f732e666f6c646572732e66616c6c6261636b6f6e65", []) }
+    static func ios_folders_fallbackone_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e66616c6c6261636b6f6e65") }
+    static func ios_folders_finishsetup(_ folder: String) -> String { render("m696f732e666f6c646572732e66696e6973687365747570", [folder]) }
+    static func ios_folders_honesty_ipad() -> String { render("m696f732e666f6c646572732e686f6e657374792e69706164", []) }
+    static func ios_folders_honesty_ipad_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e686f6e657374792e69706164") }
+    static func ios_folders_honesty_iphone() -> String { render("m696f732e666f6c646572732e686f6e657374792e6970686f6e65", []) }
+    static func ios_folders_honesty_iphone_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e686f6e657374792e6970686f6e65") }
+    static func ios_folders_intro() -> String { render("m696f732e666f6c646572732e696e74726f", []) }
+    static func ios_folders_intro_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e696e74726f") }
+    static func ios_folders_journalupdate() -> String { render("m696f732e666f6c646572732e6a6f75726e616c757064617465", []) }
+    static func ios_folders_journalupdate_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6a6f75726e616c757064617465") }
+    static func ios_folders_kind_documents() -> String { render("m696f732e666f6c646572732e6b696e642e646f63756d656e7473", []) }
+    static func ios_folders_kind_documents_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e646f63756d656e7473") }
+    static func ios_folders_kind_documents_desc() -> String { render("m696f732e666f6c646572732e6b696e642e646f63756d656e74732e64657363", []) }
+    static func ios_folders_kind_documents_desc_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e646f63756d656e74732e64657363") }
+    static func ios_folders_kind_notes() -> String { render("m696f732e666f6c646572732e6b696e642e6e6f746573", []) }
+    static func ios_folders_kind_notes_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e6e6f746573") }
+    static func ios_folders_kind_notes_desc() -> String { render("m696f732e666f6c646572732e6b696e642e6e6f7465732e64657363", []) }
+    static func ios_folders_kind_notes_desc_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e6e6f7465732e64657363") }
+    static func ios_folders_kind_other() -> String { render("m696f732e666f6c646572732e6b696e642e6f74686572", []) }
+    static func ios_folders_kind_other_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e6f74686572") }
+    static func ios_folders_kind_other_desc() -> String { render("m696f732e666f6c646572732e6b696e642e6f746865722e64657363", []) }
+    static func ios_folders_kind_other_desc_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e6f746865722e64657363") }
+    static func ios_folders_kind_photos() -> String { render("m696f732e666f6c646572732e6b696e642e70686f746f73", []) }
+    static func ios_folders_kind_photos_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e70686f746f73") }
+    static func ios_folders_kind_photos_desc() -> String { render("m696f732e666f6c646572732e6b696e642e70686f746f732e64657363", []) }
+    static func ios_folders_kind_photos_desc_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e70686f746f732e64657363") }
+    static func ios_folders_kind_screenshots() -> String { render("m696f732e666f6c646572732e6b696e642e73637265656e73686f7473", []) }
+    static func ios_folders_kind_screenshots_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e73637265656e73686f7473") }
+    static func ios_folders_kind_screenshots_desc() -> String { render("m696f732e666f6c646572732e6b696e642e73637265656e73686f74732e64657363", []) }
+    static func ios_folders_kind_screenshots_desc_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e73637265656e73686f74732e64657363") }
+    static func ios_folders_kind_transcripts() -> String { render("m696f732e666f6c646572732e6b696e642e7472616e73637269707473", []) }
+    static func ios_folders_kind_transcripts_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e7472616e73637269707473") }
+    static func ios_folders_kind_transcripts_desc() -> String { render("m696f732e666f6c646572732e6b696e642e7472616e736372697074732e64657363", []) }
+    static func ios_folders_kind_transcripts_desc_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e642e7472616e736372697074732e64657363") }
+    static func ios_folders_kindsgoingforward() -> String { render("m696f732e666f6c646572732e6b696e6473676f696e67666f7277617264", []) }
+    static func ios_folders_kindsgoingforward_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6b696e6473676f696e67666f7277617264") }
+    static func ios_folders_label() -> String { render("m696f732e666f6c646572732e6c6162656c", []) }
+    static func ios_folders_label_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6c6162656c") }
+    static func ios_folders_many(_ count: String) -> String { render("m696f732e666f6c646572732e6d616e79", [count]) }
+    static func ios_folders_needattentionmany(_ count: String) -> String { render("m696f732e666f6c646572732e6e656564617474656e74696f6e6d616e79", [count]) }
+    static func ios_folders_norepeat() -> String { render("m696f732e666f6c646572732e6e6f726570656174", []) }
+    static func ios_folders_norepeat_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6e6f726570656174") }
+    static func ios_folders_nothinguntilconfirm() -> String { render("m696f732e666f6c646572732e6e6f7468696e67756e74696c636f6e6669726d", []) }
+    static func ios_folders_nothinguntilconfirm_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6e6f7468696e67756e74696c636f6e6669726d") }
+    static func ios_folders_off() -> String { render("m696f732e666f6c646572732e6f6666", []) }
+    static func ios_folders_off_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6f6666") }
+    static func ios_folders_oneintro(_ folder: String) -> String { render("m696f732e666f6c646572732e6f6e65696e74726f", [folder]) }
+    static func ios_folders_openfolder(_ folder: String) -> String { render("m696f732e666f6c646572732e6f70656e666f6c646572", [folder]) }
+    static func ios_folders_otheroff() -> String { render("m696f732e666f6c646572732e6f746865726f6666", []) }
+    static func ios_folders_otheroff_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6f746865726f6666") }
+    static func ios_folders_otheron() -> String { render("m696f732e666f6c646572732e6f746865726f6e", []) }
+    static func ios_folders_otheron_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6f746865726f6e") }
+    static func ios_folders_overlapbody() -> String { render("m696f732e666f6c646572732e6f7665726c6170626f6479", []) }
+    static func ios_folders_overlapbody_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6f7665726c6170626f6479") }
+    static func ios_folders_overlapchoose() -> String { render("m696f732e666f6c646572732e6f7665726c617063686f6f7365", []) }
+    static func ios_folders_overlapchoose_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6f7665726c617063686f6f7365") }
+    static func ios_folders_overlapfact(_ other: String) -> String { render("m696f732e666f6c646572732e6f7665726c617066616374", [other]) }
+    static func ios_folders_overlapfolder(_ name: String) -> String { render("m696f732e666f6c646572732e6f7665726c6170666f6c646572", [name]) }
+    static func ios_folders_overlapheading(_ other: String) -> String { render("m696f732e666f6c646572732e6f7665726c617068656164696e67", [other]) }
+    static func ios_folders_overlapobsidian(_ name: String) -> String { render("m696f732e666f6c646572732e6f7665726c61706f6273696469616e", [name]) }
+    static func ios_folders_overlapoverride() -> String { render("m696f732e666f6c646572732e6f7665726c61706f76657272696465", []) }
+    static func ios_folders_overlapoverride_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e6f7665726c61706f76657272696465") }
+    static func ios_folders_pageprogress(_ done: String, _ total: String) -> String { render("m696f732e666f6c646572732e7061676570726f6772657373", [done, total]) }
+    static func ios_folders_pausedfolder() -> String { render("m696f732e666f6c646572732e706175736564666f6c646572", []) }
+    static func ios_folders_pausedfolder_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e706175736564666f6c646572") }
+    static func ios_folders_pickerhelper_ipad() -> String { render("m696f732e666f6c646572732e7069636b657268656c7065722e69706164", []) }
+    static func ios_folders_pickerhelper_ipad_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e7069636b657268656c7065722e69706164") }
+    static func ios_folders_pickerhelper_iphone() -> String { render("m696f732e666f6c646572732e7069636b657268656c7065722e6970686f6e65", []) }
+    static func ios_folders_pickerhelper_iphone_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e7069636b657268656c7065722e6970686f6e65") }
+    static func ios_folders_preview() -> String { render("m696f732e666f6c646572732e70726576696577", []) }
+    static func ios_folders_preview_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e70726576696577") }
+    static func ios_folders_previewboth(_ content: String, _ meta: String) -> String { render("m696f732e666f6c646572732e70726576696577626f7468", [content, meta]) }
+    static func ios_folders_previewcontentpart(_ count: Int, _ display: String, _ size: String) -> String { render("m696f732e666f6c646572732e70726576696577636f6e74656e7470617274", [Int64(count), display, size, String(count)]) }
+    static func ios_folders_previewfailed() -> String { render("m696f732e666f6c646572732e707265766965776661696c6564", []) }
+    static func ios_folders_previewfailed_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e707265766965776661696c6564") }
+    static func ios_folders_previewmetapart(_ count: Int, _ display: String) -> String { render("m696f732e666f6c646572732e707265766965776d65746170617274", [Int64(count), display, String(count)]) }
+    static func ios_folders_previewspan(_ items: String, _ start: String, _ end: String) -> String { render("m696f732e666f6c646572732e707265766965777370616e", [items, start, end]) }
+    static func ios_folders_refusedlocal() -> String { render("m696f732e666f6c646572732e726566757365646c6f63616c", []) }
+    static func ios_folders_refusedlocal_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e726566757365646c6f63616c") }
+    static func ios_folders_refusedprovider() -> String { render("m696f732e666f6c646572732e7265667573656470726f7669646572", []) }
+    static func ios_folders_refusedprovider_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e7265667573656470726f7669646572") }
+    static func ios_folders_remove() -> String { render("m696f732e666f6c646572732e72656d6f7665", []) }
+    static func ios_folders_remove_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e72656d6f7665") }
+    static func ios_folders_removebody(_ folder: String) -> String { render("m696f732e666f6c646572732e72656d6f7665626f6479", [folder]) }
+    static func ios_folders_removeheading(_ folder: String) -> String { render("m696f732e666f6c646572732e72656d6f766568656164696e67", [folder]) }
+    static func ios_folders_rowsubline(_ items: String, _ when: String) -> String { render("m696f732e666f6c646572732e726f777375626c696e65", [items, when]) }
+    static func ios_folders_scopenote() -> String { render("m696f732e666f6c646572732e73636f70656e6f7465", []) }
+    static func ios_folders_scopenote_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e73636f70656e6f7465") }
+    static func ios_folders_split(_ on: String, _ paused: String) -> String { render("m696f732e666f6c646572732e73706c6974", [on, paused]) }
+    static func ios_folders_startfromtoday() -> String { render("m696f732e666f6c646572732e737461727466726f6d746f646179", []) }
+    static func ios_folders_startfromtoday_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e737461727466726f6d746f646179") }
+    static func ios_folders_stays() -> String { render("m696f732e666f6c646572732e7374617973", []) }
+    static func ios_folders_stays_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e7374617973") }
+    static func ios_folders_tileprogress(_ folder: String, _ done: String, _ total: String) -> String { render("m696f732e666f6c646572732e74696c6570726f6772657373", [folder, done, total]) }
+    static func ios_folders_two(_ first: String, _ second: String) -> String { render("m696f732e666f6c646572732e74776f", [first, second]) }
+    static func ios_folders_unpaired() -> String { render("m696f732e666f6c646572732e756e706169726564", []) }
+    static func ios_folders_unpaired_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e756e706169726564") }
+    static func ios_folders_waiting(_ count: String) -> String { render("m696f732e666f6c646572732e77616974696e67", [count]) }
+    static func ios_folders_waitingfolder(_ folder: String, _ count: String) -> String { render("m696f732e666f6c646572732e77616974696e67666f6c646572", [folder, count]) }
+    static func ios_folders_whatcomesin() -> String { render("m696f732e666f6c646572732e77686174636f6d6573696e", []) }
+    static func ios_folders_whatcomesin_resource() -> LocalizedStringResource { resource("m696f732e666f6c646572732e77686174636f6d6573696e") }
     static func ios_frame_addmoreview_n148(_ value0: String, _ value1: String) -> String { render("m696f732e6672616d652e6164646d6f7265766965772e6e313438", [value0, value1]) }
     static func ios_frame_complicationviews_n154(_ value0: String, _ value1: String) -> String { render("m696f732e6672616d652e636f6d706c69636174696f6e76696577732e6e313534", [value0, value1]) }
     static func ios_frame_devicemigrationownermodel_n178(_ value0: String, _ value1: String) -> String { render("m696f732e6672616d652e6465766963656d6967726174696f6e6f776e65726d6f64656c2e6e313738", [value0, value1]) }

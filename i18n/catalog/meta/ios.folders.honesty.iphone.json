@@ -1,0 +1,16 @@
+{
+  "description": "iPhone folder honesty line while setting up or on.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "0fdfb8fbfedd41748cf4be8142806e42904541add04480b6d8d8173047632cc7",
+  "risk": "routine",
+  "auto_merge": true
+}

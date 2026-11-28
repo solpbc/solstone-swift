@@ -4,12 +4,12 @@
 import SwiftUI
 
 struct SourcesView: View {
-    @State private var selectedSourceRoute: SourceRoute?
+    @State private var path: [ShellDestination] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: self.$path) {
             AddMoreView { route in
-                self.selectedSourceRoute = route
+                self.path.append(.source(route))
             }
                 .navigationTitle("")
                 .toolbar {
@@ -21,15 +21,18 @@ struct SourcesView: View {
                             .font(ShellFont.display(22, relativeTo: .title2))
                     }
                 }
-                .navigationDestination(item: self.$selectedSourceRoute) { route in
-                    ShellDestinationView(destination: .source(route))
+                .navigationDestination(for: ShellDestination.self) { destination in
+                    ShellDestinationView(destination: destination)
                 }
         }
+        .environment(\.pushShellDestination, { destination in
+            self.path.append(destination)
+        })
     }
 }
 
 nonisolated enum SourceRoute: Hashable, Identifiable, Sendable {
-    case audio, location, screencast, watch, calendar, safari, obsidian, screenshots, photos
+    case audio, location, screencast, watch, calendar, safari, obsidian, screenshots, photos, folders
 
     var id: String {
         switch self {
@@ -42,6 +45,7 @@ nonisolated enum SourceRoute: Hashable, Identifiable, Sendable {
         case .obsidian: "obsidian"
         case .screenshots: "screenshots"
         case .photos: "photos"
+        case .folders: "folders"
         }
     }
 }
@@ -64,6 +68,7 @@ nonisolated enum SourcesViewRowBuilder {
         obsidian: Source? = nil,
         screenshots: Source? = nil,
         photos: Source? = nil,
+        folders: Source? = nil,
         hiddenIDs: Set<String>
     ) -> [SourcesViewRow] {
         var canonical = [
@@ -82,6 +87,9 @@ nonisolated enum SourcesViewRowBuilder {
         }
         if let photos {
             canonical.append(SourcesViewRow(route: .photos, source: photos))
+        }
+        if let folders {
+            canonical.append(SourcesViewRow(route: .folders, source: folders))
         }
         if let safari {
             canonical.append(SourcesViewRow(route: .safari, source: safari))

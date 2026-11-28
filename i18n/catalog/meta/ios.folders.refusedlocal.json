@@ -1,0 +1,16 @@
+{
+  "description": "Setup refusal when a local folder cannot be opened.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "fd1fd67bc1304b9f9130d381e24a9df7babdef53f8d4ccbaaed3807c9415b65a",
+  "risk": "routine",
+  "auto_merge": true
+}

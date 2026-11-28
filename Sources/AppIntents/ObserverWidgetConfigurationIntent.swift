@@ -31,7 +31,7 @@ enum ObserverWidgetSource: String, AppEnum {
             self = .screencast
         case .watch:
             self = .watch
-        case .calendar, .safari, .obsidian, .screenshots, .photos:
+        case .calendar, .safari, .obsidian, .screenshots, .photos, .folders:
             return nil
         }
     }

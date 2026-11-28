@@ -1,0 +1,16 @@
+{
+  "description": "Reason line when the paired journal does not yet advertise the folder capability.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "aca00cc2a0d661f30dfc6c16a7cda38fbb682237194667e9310076e8774b37ec",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Reason line when a folder is on while no journal is paired.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "8be7583024ea1b5eefec1cced1dc5d205095cec8f6530e57b69c8cdf50927718",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -224,6 +224,7 @@ struct DayHomeView: View {
     #if SOLSTONE_PHOTOS_LIBRARY
     @Environment(PhotosLibrarySourceHandle.self) private var photosSourceHandle: PhotosLibrarySourceHandle?
     #endif
+    @Environment(FoldersSourceHandle.self) private var foldersSourceHandle: FoldersSourceHandle?
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(PendingJournalOpenState.self) private var pendingJournalOpen: PendingJournalOpenState?
@@ -487,6 +488,16 @@ private extension DayHomeView {
                 }
             }
             #endif
+            if let handle = self.foldersSourceHandle {
+                let folders = makeFoldersSource(handle.source)
+                if self.isOnHome(folders.id) {
+                    HomeSourceTile(
+                        source: folders,
+                        route: .folders,
+                        control: foldersTileControl()
+                    )
+                }
+            }
             if let safari = self.safariSource {
                 let source = safariSourceModel(snapshot: safari.snapshot, extensionOn: safari.extensionOn,
                                                isJournalPaired: self.appConfig.isPaired, hasLoaded: safari.hasLoaded)
@@ -649,7 +660,8 @@ private extension DayHomeView {
             share: self.shareTransferHolder,
             calendar: self.calendarTransferHolder,
             safari: self.safariSource,
-            obsidian: self.obsidianTransferHolder
+            obsidian: self.obsidianTransferHolder,
+            foldersPending: self.foldersSourceHandle?.source.waitingCount ?? 0
         )
         // Import failures and awaiting-review items are NOT "waiting to sync".
         let waiting = totals.pending + max(0, totals.failed - self.shareTransferHolder.failedCount)

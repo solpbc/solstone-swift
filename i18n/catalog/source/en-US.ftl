@@ -3420,3 +3420,204 @@ ios.app.exportbgsystemdonetitle = journal copy saved
 ios.app.exportbgsystempausedtitle = saving paused
 
 ios.app.exportbgsystemstoppedtitle = saving stopped
+
+ios.folders.label = folders
+
+ios.folders.addfolder = add a folder
+
+ios.folders.addfolderplus = + add a folder
+
+ios.folders.choosefolder = choose a folder
+
+ios.folders.intro = while this is on, the solstone app takes in changes from the folders you choose and adds them to your journal in five-minute segments.
+
+ios.folders.oneintro = while this is on, the solstone app takes in changes from { $folder } and adds them to your journal in five-minute segments.
+
+ios.folders.two = { $first }, { $second }
+
+ios.folders.many = { $count } folders
+
+ios.folders.split = { $on } on · { $paused } paused
+
+ios.folders.tileprogress = { $folder } · { $done } of { $total } in your journal
+
+ios.folders.pageprogress = { $done } of { $total } items in your journal
+
+ios.folders.waiting = { $count } waiting to sync
+
+ios.folders.waitingfolder = { $folder } · { $count } waiting to sync
+
+ios.folders.unpaired = changes wait on this device until you connect a journal.
+
+ios.folders.journalupdate = waiting for a journal update. changes wait on this device.
+
+ios.folders.finishsetup = finish setting up { $folder }.
+
+ios.folders.pausedfolder = you paused syncing for this folder. changes wait on this device until you resume.
+
+ios.folders.off = this folder is off. what's already in your journal stays.
+
+ios.folders.stays = what's already in your journal stays if you delete a file from the folder, pause, or turn this off.
+
+ios.folders.otheron = with other files on, kinds you turned off and files over 64 MB come in as names and details only.
+
+ios.folders.otheroff = only files of the kinds you chose under 64 MB come in.
+
+ios.folders.needattentionmany = { $count } folders need attention
+
+ios.folders.alreadyadded = { $folder } is already added.
+
+ios.folders.openfolder = open { $folder }
+
+ios.folders.remove = remove folder
+
+ios.folders.removeheading = remove { $folder } from the solstone app?
+
+ios.folders.removebody = nothing more from this folder will go into your journal. what's already in your journal stays, and nothing in { $folder } changes.
+
+ios.folders.overlapheading = this folder overlaps with { $other }.
+
+ios.folders.overlapbody = files in both places may come into your journal twice. you can pick another folder or use this one anyway.
+
+ios.folders.overlapchoose = choose another folder
+
+ios.folders.overlapoverride = use this folder anyway
+
+ios.folders.overlapfact = overlaps with { $other }.
+
+ios.folders.overlapobsidian = your Obsidian vault ({ $name })
+
+ios.folders.overlapfolder = your { $name } folder
+
+ios.folders.whatcomesin = what comes in
+
+ios.folders.kind.notes = notes
+
+ios.folders.kind.notes.desc = markdown and text notes. changes come in as you edit them.
+
+ios.folders.kind.documents = documents
+
+ios.folders.kind.documents.desc = PDFs and longer documents. revisions come in after an hour without saves.
+
+ios.folders.kind.transcripts = transcripts
+
+ios.folders.kind.transcripts.desc = subtitles and saved transcripts.
+
+ios.folders.kind.screenshots = screenshots
+
+ios.folders.kind.screenshots.desc = screenshots saved in this folder.
+
+ios.folders.kind.photos = photos
+
+ios.folders.kind.photos.desc = photos and other images.
+
+ios.folders.kind.other = other files (names and details only)
+
+ios.folders.kind.other.desc = installers, audio, video, and other files. only names, sizes, and file details come in, never the file contents.
+
+ios.folders.chooseatleastone = choose at least one kind to bring in.
+
+ios.folders.kindsgoingforward = changes to these kinds apply going forward. what's already in your journal stays.
+
+ios.folders.facetheading = facet (optional)
+
+ios.folders.facetnone = none
+
+ios.folders.facethelpnone = choose a facet to add it to every segment from this folder.
+
+ios.folders.facethelpsetup = every segment from this folder goes into { $facet }.
+
+ios.folders.facethelpactive = new segments from this folder go into { $facet }.
+
+ios.folders.facetunpaired = connect a journal to choose a facet.
+
+ios.folders.facetoffline = facets unavailable while your journal is offline.
+
+ios.folders.preview = preview
+
+ios.folders.checkingfolder = checking this folder…
+
+ios.folders.previewspan = { $items } · { $start } to { $end }
+
+ios.folders.previewcontentpart = { $count ->
+    [one] 1 file with content ({ $size })
+   *[other] { $display } files with content ({ $size })
+}
+
+ios.folders.previewmetapart = { $count ->
+    [one] 1 other file (details only)
+   *[other] { $display } other files (details only)
+}
+
+ios.folders.previewboth = { $content } · { $meta }
+
+ios.folders.estheading = estimated work in your journal
+
+ios.folders.estsegments = { $count ->
+    [one] ~1 segment
+   *[other] ~{ $display } segments
+}
+
+ios.folders.estdays = { $count ->
+    [one] 1 day
+   *[other] { $display } days
+}
+
+ios.folders.estthoughts = { $count ->
+    [one] ~1 thought
+   *[other] ~{ $display } thoughts
+}
+
+ios.folders.estvalues = { $segments } · { $days } · { $thoughts }
+
+ios.folders.estgloss = files touched within 5 minutes share one segment. details-only files take no thoughts.
+
+ios.folders.estunpaired = connect a journal to see an estimate. you can still confirm and files will wait on this device.
+
+ios.folders.estoffline = journal estimate unavailable while your journal is offline. you can still confirm and files will wait on this device.
+
+ios.folders.scopenote = includes subfolders. unfinished downloads wait until they finish; hidden files are skipped.
+
+ios.folders.nothinguntilconfirm = nothing from this folder comes in until you confirm.
+
+ios.folders.norepeat = items already in your journal aren't brought in again.
+
+ios.folders.bringinone = bring in 1 item
+
+ios.folders.bringinmany = bring in { $count } items
+
+ios.folders.startfromtoday = start from today
+
+ios.folders.previewfailed = couldn't read this folder to count what's inside.
+
+ios.folders.bringinolder = bring in older files
+
+ios.folders.backfillstatus = older days are processed behind recent days. follow progress on status in your journal.
+
+ios.folders.cantreadone = couldn't read 1 file.
+
+ios.folders.cantreadmany = couldn't read { $count } files.
+
+ios.folders.fallbackone = 1 file's contents couldn't be added, so only its details came in.
+
+ios.folders.fallbackmany = { $count } files' contents couldn't be added, so only their details came in.
+
+ios.folders.refusedlocal = the solstone app can't open this folder. choose another folder.
+
+ios.folders.refusedprovider = that storage app won't let the solstone app open this folder. choose a folder on this device.
+
+ios.folders.pickerhelper.iphone = choose a folder in Files. local folders on this iphone work best; if another app refuses access, the solstone app will tell you.
+
+ios.folders.pickerhelper.ipad = choose a folder in Files. local folders on this ipad work best; if another app refuses access, the solstone app will tell you.
+
+ios.folders.honesty.iphone = checks while this app is open. ios may also allow a check in the background, so changes can take a while to reach your journal.
+
+ios.folders.honesty.ipad = checks while this app is open. ipados may also allow a check in the background, so changes can take a while to reach your journal.
+
+ios.folders.attention.tile = can't open { $folder }.
+
+ios.folders.attention.reason = the solstone app can't open { $folder } anymore. choose it again in Files to keep changes coming in.
+
+ios.folders.attention.action = choose the folder
+
+ios.folders.rowsubline = { $items } · { $when }

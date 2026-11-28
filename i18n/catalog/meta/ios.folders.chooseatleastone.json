@@ -1,0 +1,16 @@
+{
+  "description": "Validation message when all six kind switches are turned off.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "3cc090295ca2d8ea506da9ca51b50258b89acc622b1ab600c9ee584597c234f2",
+  "risk": "routine",
+  "auto_merge": true
+}

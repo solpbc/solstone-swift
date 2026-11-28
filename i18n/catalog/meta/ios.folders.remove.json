@@ -1,0 +1,16 @@
+{
+  "description": "Footer action and confirm button to remove a folder.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "98782e48a7964abda13c83dfa51c350aa040987e990ef48865a7555566314b0c",
+  "risk": "routine",
+  "auto_merge": true
+}

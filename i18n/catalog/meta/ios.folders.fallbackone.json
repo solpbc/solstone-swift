@@ -1,0 +1,16 @@
+{
+  "description": "Non-fault fact when one file fell back to details-only.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "378fc4af56372964ee2d6a9fcd9b1d58e8897ea4c7e3072c221f2ce514d7f0df",
+  "risk": "routine",
+  "auto_merge": true
+}

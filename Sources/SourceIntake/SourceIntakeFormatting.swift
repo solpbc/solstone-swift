@@ -13,6 +13,7 @@ nonisolated enum SourceIntakeSource: String, Equatable, Sendable, CaseIterable {
     case obsidian
     case screenshots
     case photos
+    case folders
     case imports
 }
 
@@ -176,6 +177,7 @@ nonisolated extension SourceIntakeSource {
         case .obsidian: .notes
         case .screenshots: .screenshots
         case .photos: .photos
+        case .folders: .items
         case .imports: .items
         }
     }
@@ -193,6 +195,7 @@ nonisolated extension SourceIntakeSnapshot {
         case .obsidian: self.obsidian
         case .screenshots: self.screenshots
         case .photos: self.photos
+        case .folders: self.folders
         case .imports: self.imports
         }
     }

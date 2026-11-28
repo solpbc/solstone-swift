@@ -1,0 +1,21 @@
+{
+  "description": "Tile sub-line when a folder's Files bookmark needs attention.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "folder",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "e483f0c12a31f0421fa549dd6b66482cd884d3edecc566d53b985b93a2fb91ae",
+  "risk": "routine",
+  "auto_merge": true
+}

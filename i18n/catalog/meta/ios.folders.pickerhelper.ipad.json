@@ -1,0 +1,16 @@
+{
+  "description": "iPad helper below add a folder.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "36e5d9b90007c385f9534be08fe29ac41ef994da48e231b29bfdfea4bc646697",
+  "risk": "routine",
+  "auto_merge": true
+}

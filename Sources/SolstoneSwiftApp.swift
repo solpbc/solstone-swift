@@ -42,6 +42,8 @@ struct SolstoneSwiftApp: App {
     @State private var photosLibraryEngine: PhotosLibraryEngine
     @State private var photosLibrarySourceHandle: PhotosLibrarySourceHandle
 #endif
+    @State private var foldersEngine: FoldersEngine
+    @State private var foldersSourceHandle: FoldersSourceHandle
     @State private var safariSource: SafariSourceModel?
     @State private var calendarTransferHolder: CalendarTransferHolder
     @State private var calendarBackgroundRefresh: CalendarBackgroundRefresh
@@ -754,6 +756,66 @@ struct SolstoneSwiftApp: App {
             photosLibraryEngine?.restartFirstSetup()
         }
 #endif
+        let foldersStore = FoldersStore(fileURL: FoldersStore.defaultFileURL())
+        let foldersClient = AuthenticatedFoldersClient(
+            homeClient: homeClient,
+            localPortProvider: { [weak tunnel] in
+                await MainActor.run { tunnel?.activeConnection?.port }
+            },
+            isPairedProvider: { [weak appConfig] in
+                await MainActor.run { appConfig?.isPaired ?? false }
+            },
+            admitSend: {
+                await MainActor.run {
+                    SPLRuntime.pairingStore.hasActiveOwner
+                        && SPLRuntime.confirmationStore.allowsSend(pairing: SPLRuntime.pairingStore.snapshot().pairing)
+                }
+            },
+            pairingGeneration: { [weak appConfig] in
+                await MainActor.run { appConfig?.store.snapshot().pairingGeneration ?? 0 }
+            }
+        )
+        let foldersEngine = FoldersEngine(
+            store: foldersStore,
+            transport: foldersClient,
+            intake: sourceIntakeStore,
+            obsidianVaultProvider: { [weak obsidianSource] in
+                guard let obsidianSource,
+                      let vaultID = obsidianSource.store.document.selectedVaultID,
+                      let vault = obsidianSource.store.document.vaults[vaultID],
+                      let bookmark = vault.bookmarkData
+                else { return nil }
+                var stale = false
+                guard let url = try? URL(
+                    resolvingBookmarkData: bookmark,
+                    options: [.withoutUI, .withoutImplicitStartAccessing],
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &stale
+                ) else { return nil }
+                return (url.standardizedFileURL.path, vault.folderName)
+            }
+        )
+        let foldersSourceHandle = FoldersSourceHandle(source: foldersEngine)
+        foldersEngine.isPairedProvider = { [weak appConfig] in
+            appConfig?.isPaired ?? false
+        }
+        foldersEngine.isConnectedProvider = { [weak tunnel] in
+            tunnel?.state.isConnected ?? false
+        }
+#if DEBUG
+        if Self.isUITest,
+           let flagIndex = ProcessInfo.processInfo.arguments.firstIndex(of: "--ui-test-folders-state"),
+           flagIndex + 1 < ProcessInfo.processInfo.arguments.count
+        {
+            let mode = ProcessInfo.processInfo.arguments[flagIndex + 1]
+            foldersEngine.isPairedProvider = { mode != "unpaired" }
+            foldersEngine.applyUITestState(mode)
+        }
+#endif
+        calendarBackgroundRefresh.foldersEngine = foldersEngine
+        appConfig.store.registerOnNewPairing { [weak foldersEngine] in
+            foldersEngine?.restartFirstSetup()
+        }
         let connectionStallMonitor = ConnectionStallMonitor(
             store: ConnectionStallStoreFactory.make(),
             clock: SystemConnectionStallClock(),
@@ -781,7 +843,8 @@ struct SolstoneSwiftApp: App {
                 calendar: calendarTransferHolder,
                 safari: safariSource,
                 obsidian: obsidianTransferHolder,
-                screenshotsPending: screenshotsSource.waitingCount
+                screenshotsPending: screenshotsSource.waitingCount,
+                foldersPending: foldersEngine.waitingCount
             )
             return ConnectionSyncInputs(
                 tunnelState: tunnel.state,
@@ -843,7 +906,9 @@ struct SolstoneSwiftApp: App {
                     calendar: calendarTransferHolder,
                     obsidian: obsidianTransferHolder,
                     screenshotsPending: screenshotsSource.waitingCount,
-                    screenshotsUnsendable: screenshotsSource.unsendableCount
+                    screenshotsUnsendable: screenshotsSource.unsendableCount,
+                    foldersPending: foldersEngine.waitingCount,
+                    foldersUnsendable: foldersEngine.unsendableCount
                 )
             },
             heldTotals: {
@@ -853,7 +918,8 @@ struct SolstoneSwiftApp: App {
                     share: shareTransferHolder,
                     calendar: calendarTransferHolder,
                     obsidian: obsidianTransferHolder,
-                    screenshotsPending: screenshotsSource.waitingCount
+                    screenshotsPending: screenshotsSource.waitingCount,
+                    foldersPending: foldersEngine.waitingCount
                 )
             },
             inFlight: {
@@ -862,7 +928,7 @@ struct SolstoneSwiftApp: App {
                     watch: watchUploaderHolder,
                     share: shareTransferHolder,
                     calendar: calendarTransferHolder
-                )
+                ) + foldersEngine.inFlightCount
             },
             backoff: {
                 uploadBackoff(mirror: transferStatusMirror)
@@ -876,6 +942,7 @@ struct SolstoneSwiftApp: App {
                     diagnosticLog: log,
                     watchDrain: watchSegmentDrain
                 )
+                await foldersEngine.drainPending()
             },
             setPacingMode: { mode in
                 await transferEngine.setPacingMode(mode)
@@ -1112,6 +1179,7 @@ struct SolstoneSwiftApp: App {
                     obsidianSource: obsidianSource,
                     obsidianTransferHolder: obsidianTransferHolder,
                     screenshotsSource: screenshotsSource,
+                    foldersEngine: foldersEngine,
                     diagnosticLog: log,
                     isAppActive: isAppActive
                 )
@@ -1220,6 +1288,8 @@ struct SolstoneSwiftApp: App {
         self._photosLibraryEngine = State(initialValue: photosLibraryEngine)
         self._photosLibrarySourceHandle = State(initialValue: photosLibrarySourceHandle)
 #endif
+        self._foldersEngine = State(initialValue: foldersEngine)
+        self._foldersSourceHandle = State(initialValue: foldersSourceHandle)
         self._safariSource = State(initialValue: safariSource)
         self._calendarTransferHolder = State(initialValue: calendarTransferHolder)
         self._calendarBackgroundRefresh = State(initialValue: calendarBackgroundRefresh)
@@ -1305,6 +1375,8 @@ struct SolstoneSwiftApp: App {
                 .environment(self.photosLibraryEngine)
                 .environment(self.photosLibrarySourceHandle)
 #endif
+                .environment(self.foldersEngine)
+                .environment(self.foldersSourceHandle)
                 .environment(self.safariSource)
                 .environment(self.calendarTransferHolder)
                 .environment(self.mobileSegmentUploader)
@@ -1444,6 +1516,9 @@ struct SolstoneSwiftApp: App {
                         await self.photosLibraryEngine.foreground()
                     }
 #endif
+                    if !Self.isIntegrationMode && !Self.isUITest && self.appConfig.isPaired {
+                        await self.foldersEngine.foreground()
+                    }
                 }
                 .onChange(of: self.transferStatusMirror.applyCount) { _, _ in
                     Task { await self.shareTransferHolder.refreshActiveItems() }
@@ -1466,6 +1541,10 @@ struct SolstoneSwiftApp: App {
                             await self.photosLibraryEngine.foreground()
                         }
 #endif
+                        if !Self.isIntegrationMode && !Self.isUITest && self.appConfig.isPaired {
+                            self.foldersEngine.clearRetryBackoff()
+                            await self.foldersEngine.foreground()
+                        }
                     }
                 }
                 // Last, so a stopped or held app builds none of the above.
@@ -1494,6 +1573,10 @@ struct SolstoneSwiftApp: App {
                     Task { await self.photosLibraryEngine.foreground() }
                 }
 #endif
+                if !Self.isIntegrationMode && !Self.isUITest && self.appConfig.isPaired {
+                    self.foldersEngine.clearRetryBackoff()
+                    Task { await self.foldersEngine.foreground() }
+                }
                 if Self.isIntegrationMode,
                    // Internal compatibility arg for automation; not owner-facing UI vocabulary.
                    Self.integrationObserverTapKind == "sense",
@@ -1549,6 +1632,9 @@ struct SolstoneSwiftApp: App {
         // While a launch check is open, or has stopped or held the app, none of this runs.
         guard self.ageSignal.allowsActivity else { return }
         self.obsidianSource.setAppActive(newPhase == .active)
+        if !Self.isUITest && !Self.isIntegrationMode {
+            self.foldersEngine.setAppActive(newPhase == .active)
+        }
         self.screencastManager.receiveScenePhase(Self.screencastScenePhase(newPhase))
         ConnectionScenePhaseFanout.deliver(
             newPhase,
@@ -1586,6 +1672,9 @@ struct SolstoneSwiftApp: App {
                 Task { await self.photosLibraryEngine.foreground() }
             }
 #endif
+            if !Self.isUITest {
+                Task { await self.foldersEngine.foreground() }
+            }
             Task { await self.obsidianSource.checkNow() }
             Task {
                 await self.shareTransferHolder.refreshActiveItems()
@@ -1672,6 +1761,7 @@ struct SolstoneSwiftApp: App {
         obsidianSource: ObsidianSourceEngine,
         obsidianTransferHolder: ObsidianTransferHolder,
         screenshotsSource: ScreenshotsSourceEngine,
+        foldersEngine: FoldersEngine,
         diagnosticLog: DiagnosticLog,
         isAppActive: Bool
     ) async {
@@ -1782,6 +1872,9 @@ struct SolstoneSwiftApp: App {
                 await obsidianSource.launch()
                 await obsidianTransferHolder.refreshNoteCounts()
                 await screenshotsSource.launch()
+                if !Self.isUITest && !Self.isIntegrationMode {
+                    foldersEngine.setAppActive(isAppActive)
+                }
             },
             enableDispatch: {
                 await transferEngine.enableDispatch()

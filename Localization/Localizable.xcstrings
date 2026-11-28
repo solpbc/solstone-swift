@@ -6747,6 +6747,1046 @@
         }
       }
     },
+    "m696f732e666f6c646572732e616464666f6c646572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "add a folder"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e616464666f6c646572706c7573": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ add a folder"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e616c72656164796164646564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is already added."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e617474656e74696f6e2e616374696f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "choose the folder"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e617474656e74696f6e2e726561736f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the solstone app can't open %1$@ anymore. choose it again in Files to keep changes coming in."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e617474656e74696f6e2e74696c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "can't open %1$@."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6261636b66696c6c737461747573": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "older days are processed behind recent days. follow progress on status in your journal."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6272696e67696e6d616e79": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bring in %1$@ items"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6272696e67696e6f6c646572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bring in older files"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6272696e67696e6f6e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bring in 1 item"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e63616e74726561646d616e79": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "couldn't read %1$@ files."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e63616e74726561646f6e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "couldn't read 1 file."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e636865636b696e67666f6c646572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checking this folder…"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e63686f6f736561746c656173746f6e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "choose at least one kind to bring in."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e63686f6f7365666f6c646572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "choose a folder"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e65737464617973": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "1 day"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ days"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e657374676c6f7373": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "files touched within 5 minutes share one segment. details-only files take no thoughts."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e65737468656164696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "estimated work in your journal"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6573746f66666c696e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "journal estimate unavailable while your journal is offline. you can still confirm and files will wait on this device."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6573747365676d656e7473": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "~1 segment"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "~%2$@ segments"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e65737474686f7567687473": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "~1 thought"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "~%2$@ thoughts"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e657374756e706169726564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connect a journal to see an estimate. you can still confirm and files will wait on this device."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e65737476616c756573": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ · %3$@"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e666163657468656164696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "facet (optional)"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e666163657468656c70616374697665": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "new segments from this folder go into %1$@."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e666163657468656c706e6f6e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "choose a facet to add it to every segment from this folder."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e666163657468656c707365747570": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "every segment from this folder goes into %1$@."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e66616365746e6f6e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "none"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e66616365746f66666c696e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "facets unavailable while your journal is offline."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6661636574756e706169726564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connect a journal to choose a facet."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e66616c6c6261636b6d616e79": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ files' contents couldn't be added, so only their details came in."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e66616c6c6261636b6f6e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 file's contents couldn't be added, so only its details came in."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e66696e6973687365747570": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "finish setting up %1$@."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e686f6e657374792e69706164": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checks while this app is open. ipados may also allow a check in the background, so changes can take a while to reach your journal."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e686f6e657374792e6970686f6e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checks while this app is open. ios may also allow a check in the background, so changes can take a while to reach your journal."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e696e74726f": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "while this is on, the solstone app takes in changes from the folders you choose and adds them to your journal in five-minute segments."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6a6f75726e616c757064617465": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting for a journal update. changes wait on this device."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e646f63756d656e7473": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "documents"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e646f63756d656e74732e64657363": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFs and longer documents. revisions come in after an hour without saves."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e6e6f746573": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notes"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e6e6f7465732e64657363": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "markdown and text notes. changes come in as you edit them."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e6f74686572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "other files (names and details only)"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e6f746865722e64657363": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "installers, audio, video, and other files. only names, sizes, and file details come in, never the file contents."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e70686f746f73": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "photos"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e70686f746f732e64657363": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "photos and other images."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e73637265656e73686f7473": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screenshots"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e73637265656e73686f74732e64657363": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screenshots saved in this folder."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e7472616e73637269707473": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transcripts"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e642e7472616e736372697074732e64657363": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subtitles and saved transcripts."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6b696e6473676f696e67666f7277617264": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "changes to these kinds apply going forward. what's already in your journal stays."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6c6162656c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "folders"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6d616e79": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ folders"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6e656564617474656e74696f6e6d616e79": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ folders need attention"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6e6f726570656174": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "items already in your journal aren't brought in again."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6e6f7468696e67756e74696c636f6e6669726d": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nothing from this folder comes in until you confirm."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f6666": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this folder is off. what's already in your journal stays."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f6e65696e74726f": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "while this is on, the solstone app takes in changes from %1$@ and adds them to your journal in five-minute segments."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f70656e666f6c646572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "open %1$@"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f746865726f6666": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "only files of the kinds you chose under 64 MB come in."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f746865726f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "with other files on, kinds you turned off and files over 64 MB come in as names and details only."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f7665726c6170626f6479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "files in both places may come into your journal twice. you can pick another folder or use this one anyway."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f7665726c617063686f6f7365": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "choose another folder"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f7665726c617066616374": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "overlaps with %1$@."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f7665726c6170666f6c646572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your %1$@ folder"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f7665726c617068656164696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this folder overlaps with %1$@."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f7665726c61706f6273696469616e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your Obsidian vault (%1$@)"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e6f7665726c61706f76657272696465": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "use this folder anyway"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e7061676570726f6772657373": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@ items in your journal"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e706175736564666f6c646572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "you paused syncing for this folder. changes wait on this device until you resume."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e7069636b657268656c7065722e69706164": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "choose a folder in Files. local folders on this ipad work best; if another app refuses access, the solstone app will tell you."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e7069636b657268656c7065722e6970686f6e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "choose a folder in Files. local folders on this iphone work best; if another app refuses access, the solstone app will tell you."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e70726576696577": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "preview"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e70726576696577626f7468": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e70726576696577636f6e74656e7470617274": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "1 file with content (%3$@)"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ files with content (%3$@)"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e707265766965776661696c6564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "couldn't read this folder to count what's inside."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e707265766965776d65746170617274": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "1 other file (details only)"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ other files (details only)"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e707265766965777370616e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ to %3$@"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e726566757365646c6f63616c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the solstone app can't open this folder. choose another folder."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e7265667573656470726f7669646572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "that storage app won't let the solstone app open this folder. choose a folder on this device."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e72656d6f7665": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remove folder"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e72656d6f7665626f6479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nothing more from this folder will go into your journal. what's already in your journal stays, and nothing in %1$@ changes."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e72656d6f766568656164696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remove %1$@ from the solstone app?"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e726f777375626c696e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e73636f70656e6f7465": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "includes subfolders. unfinished downloads wait until they finish; hidden files are skipped."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e73706c6974": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ on · %2$@ paused"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e737461727466726f6d746f646179": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "start from today"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e7374617973": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "what's already in your journal stays if you delete a file from the folder, pause, or turn this off."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e74696c6570726f6772657373": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ of %3$@ in your journal"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e74776f": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e756e706169726564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "changes wait on this device until you connect a journal."
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e77616974696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ waiting to sync"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e77616974696e67666f6c646572": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ waiting to sync"
+          }
+        }
+      }
+    },
+    "m696f732e666f6c646572732e77686174636f6d6573696e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "what comes in"
+          }
+        }
+      }
+    },
     "m696f732e6672616d652e6164646d6f7265766965772e6e313438": {
       "localizations": {
         "en-US": {

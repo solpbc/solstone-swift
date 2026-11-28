@@ -11731,6 +11731,1545 @@
       "selector": null
     },
     {
+      "id": "ios.folders.addfolder",
+      "resource": "m696f732e666f6c646572732e616464666f6c646572",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.addfolderplus",
+      "resource": "m696f732e666f6c646572732e616464666f6c646572706c7573",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.alreadyadded",
+      "resource": "m696f732e666f6c646572732e616c72656164796164646564",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "folder",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.attention.action",
+      "resource": "m696f732e666f6c646572732e617474656e74696f6e2e616374696f6e",
+      "namespace": "ios.folders.attention",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.attention.reason",
+      "resource": "m696f732e666f6c646572732e617474656e74696f6e2e726561736f6e",
+      "namespace": "ios.folders.attention",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "folder",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.attention.tile",
+      "resource": "m696f732e666f6c646572732e617474656e74696f6e2e74696c65",
+      "namespace": "ios.folders.attention",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "folder",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.backfillstatus",
+      "resource": "m696f732e666f6c646572732e6261636b66696c6c737461747573",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.bringinmany",
+      "resource": "m696f732e666f6c646572732e6272696e67696e6d616e79",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.bringinolder",
+      "resource": "m696f732e666f6c646572732e6272696e67696e6f6c646572",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.bringinone",
+      "resource": "m696f732e666f6c646572732e6272696e67696e6f6e65",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.cantreadmany",
+      "resource": "m696f732e666f6c646572732e63616e74726561646d616e79",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.cantreadone",
+      "resource": "m696f732e666f6c646572732e63616e74726561646f6e65",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.checkingfolder",
+      "resource": "m696f732e666f6c646572732e636865636b696e67666f6c646572",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.chooseatleastone",
+      "resource": "m696f732e666f6c646572732e63686f6f736561746c656173746f6e65",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.choosefolder",
+      "resource": "m696f732e666f6c646572732e63686f6f7365666f6c646572",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.estdays",
+      "resource": "m696f732e666f6c646572732e65737464617973",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        },
+        {
+          "name": "display",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.folders.estgloss",
+      "resource": "m696f732e666f6c646572732e657374676c6f7373",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.estheading",
+      "resource": "m696f732e666f6c646572732e65737468656164696e67",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.estoffline",
+      "resource": "m696f732e666f6c646572732e6573746f66666c696e65",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.estsegments",
+      "resource": "m696f732e666f6c646572732e6573747365676d656e7473",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        },
+        {
+          "name": "display",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.folders.estthoughts",
+      "resource": "m696f732e666f6c646572732e65737474686f7567687473",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        },
+        {
+          "name": "display",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.folders.estunpaired",
+      "resource": "m696f732e666f6c646572732e657374756e706169726564",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.estvalues",
+      "resource": "m696f732e666f6c646572732e65737476616c756573",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "segments",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "days",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "thoughts",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.facetheading",
+      "resource": "m696f732e666f6c646572732e666163657468656164696e67",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.facethelpactive",
+      "resource": "m696f732e666f6c646572732e666163657468656c70616374697665",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "facet",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.facethelpnone",
+      "resource": "m696f732e666f6c646572732e666163657468656c706e6f6e65",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.facethelpsetup",
+      "resource": "m696f732e666f6c646572732e666163657468656c707365747570",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "facet",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.facetnone",
+      "resource": "m696f732e666f6c646572732e66616365746e6f6e65",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.facetoffline",
+      "resource": "m696f732e666f6c646572732e66616365746f66666c696e65",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.facetunpaired",
+      "resource": "m696f732e666f6c646572732e6661636574756e706169726564",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.fallbackmany",
+      "resource": "m696f732e666f6c646572732e66616c6c6261636b6d616e79",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.fallbackone",
+      "resource": "m696f732e666f6c646572732e66616c6c6261636b6f6e65",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.finishsetup",
+      "resource": "m696f732e666f6c646572732e66696e6973687365747570",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "folder",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.honesty.ipad",
+      "resource": "m696f732e666f6c646572732e686f6e657374792e69706164",
+      "namespace": "ios.folders.honesty",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.honesty.iphone",
+      "resource": "m696f732e666f6c646572732e686f6e657374792e6970686f6e65",
+      "namespace": "ios.folders.honesty",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.intro",
+      "resource": "m696f732e666f6c646572732e696e74726f",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.journalupdate",
+      "resource": "m696f732e666f6c646572732e6a6f75726e616c757064617465",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.documents",
+      "resource": "m696f732e666f6c646572732e6b696e642e646f63756d656e7473",
+      "namespace": "ios.folders.kind",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.documents.desc",
+      "resource": "m696f732e666f6c646572732e6b696e642e646f63756d656e74732e64657363",
+      "namespace": "ios.folders.kind.documents",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.notes",
+      "resource": "m696f732e666f6c646572732e6b696e642e6e6f746573",
+      "namespace": "ios.folders.kind",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.notes.desc",
+      "resource": "m696f732e666f6c646572732e6b696e642e6e6f7465732e64657363",
+      "namespace": "ios.folders.kind.notes",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.other",
+      "resource": "m696f732e666f6c646572732e6b696e642e6f74686572",
+      "namespace": "ios.folders.kind",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.other.desc",
+      "resource": "m696f732e666f6c646572732e6b696e642e6f746865722e64657363",
+      "namespace": "ios.folders.kind.other",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.photos",
+      "resource": "m696f732e666f6c646572732e6b696e642e70686f746f73",
+      "namespace": "ios.folders.kind",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.photos.desc",
+      "resource": "m696f732e666f6c646572732e6b696e642e70686f746f732e64657363",
+      "namespace": "ios.folders.kind.photos",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.screenshots",
+      "resource": "m696f732e666f6c646572732e6b696e642e73637265656e73686f7473",
+      "namespace": "ios.folders.kind",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.screenshots.desc",
+      "resource": "m696f732e666f6c646572732e6b696e642e73637265656e73686f74732e64657363",
+      "namespace": "ios.folders.kind.screenshots",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.transcripts",
+      "resource": "m696f732e666f6c646572732e6b696e642e7472616e73637269707473",
+      "namespace": "ios.folders.kind",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kind.transcripts.desc",
+      "resource": "m696f732e666f6c646572732e6b696e642e7472616e736372697074732e64657363",
+      "namespace": "ios.folders.kind.transcripts",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.kindsgoingforward",
+      "resource": "m696f732e666f6c646572732e6b696e6473676f696e67666f7277617264",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.label",
+      "resource": "m696f732e666f6c646572732e6c6162656c",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.many",
+      "resource": "m696f732e666f6c646572732e6d616e79",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.needattentionmany",
+      "resource": "m696f732e666f6c646572732e6e656564617474656e74696f6e6d616e79",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.norepeat",
+      "resource": "m696f732e666f6c646572732e6e6f726570656174",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.nothinguntilconfirm",
+      "resource": "m696f732e666f6c646572732e6e6f7468696e67756e74696c636f6e6669726d",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.off",
+      "resource": "m696f732e666f6c646572732e6f6666",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.oneintro",
+      "resource": "m696f732e666f6c646572732e6f6e65696e74726f",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "folder",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.openfolder",
+      "resource": "m696f732e666f6c646572732e6f70656e666f6c646572",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "folder",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.otheroff",
+      "resource": "m696f732e666f6c646572732e6f746865726f6666",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.otheron",
+      "resource": "m696f732e666f6c646572732e6f746865726f6e",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.overlapbody",
+      "resource": "m696f732e666f6c646572732e6f7665726c6170626f6479",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.overlapchoose",
+      "resource": "m696f732e666f6c646572732e6f7665726c617063686f6f7365",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.overlapfact",
+      "resource": "m696f732e666f6c646572732e6f7665726c617066616374",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "other",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.overlapfolder",
+      "resource": "m696f732e666f6c646572732e6f7665726c6170666f6c646572",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.overlapheading",
+      "resource": "m696f732e666f6c646572732e6f7665726c617068656164696e67",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "other",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.overlapobsidian",
+      "resource": "m696f732e666f6c646572732e6f7665726c61706f6273696469616e",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.overlapoverride",
+      "resource": "m696f732e666f6c646572732e6f7665726c61706f76657272696465",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.pageprogress",
+      "resource": "m696f732e666f6c646572732e7061676570726f6772657373",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "done",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.pausedfolder",
+      "resource": "m696f732e666f6c646572732e706175736564666f6c646572",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.pickerhelper.ipad",
+      "resource": "m696f732e666f6c646572732e7069636b657268656c7065722e69706164",
+      "namespace": "ios.folders.pickerhelper",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.pickerhelper.iphone",
+      "resource": "m696f732e666f6c646572732e7069636b657268656c7065722e6970686f6e65",
+      "namespace": "ios.folders.pickerhelper",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.preview",
+      "resource": "m696f732e666f6c646572732e70726576696577",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.previewboth",
+      "resource": "m696f732e666f6c646572732e70726576696577626f7468",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "content",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "meta",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.previewcontentpart",
+      "resource": "m696f732e666f6c646572732e70726576696577636f6e74656e7470617274",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        },
+        {
+          "name": "display",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "size",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.folders.previewfailed",
+      "resource": "m696f732e666f6c646572732e707265766965776661696c6564",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.previewmetapart",
+      "resource": "m696f732e666f6c646572732e707265766965776d65746170617274",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        },
+        {
+          "name": "display",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.folders.previewspan",
+      "resource": "m696f732e666f6c646572732e707265766965777370616e",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "items",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "start",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "end",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.refusedlocal",
+      "resource": "m696f732e666f6c646572732e726566757365646c6f63616c",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.refusedprovider",
+      "resource": "m696f732e666f6c646572732e7265667573656470726f7669646572",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.remove",
+      "resource": "m696f732e666f6c646572732e72656d6f7665",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.removebody",
+      "resource": "m696f732e666f6c646572732e72656d6f7665626f6479",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "folder",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.removeheading",
+      "resource": "m696f732e666f6c646572732e72656d6f766568656164696e67",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "folder",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.rowsubline",
+      "resource": "m696f732e666f6c646572732e726f777375626c696e65",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "items",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "when",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.scopenote",
+      "resource": "m696f732e666f6c646572732e73636f70656e6f7465",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.split",
+      "resource": "m696f732e666f6c646572732e73706c6974",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "on",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "paused",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.startfromtoday",
+      "resource": "m696f732e666f6c646572732e737461727466726f6d746f646179",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.stays",
+      "resource": "m696f732e666f6c646572732e7374617973",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.tileprogress",
+      "resource": "m696f732e666f6c646572732e74696c6570726f6772657373",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "folder",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "done",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.two",
+      "resource": "m696f732e666f6c646572732e74776f",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "first",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "second",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.unpaired",
+      "resource": "m696f732e666f6c646572732e756e706169726564",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.waiting",
+      "resource": "m696f732e666f6c646572732e77616974696e67",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.waitingfolder",
+      "resource": "m696f732e666f6c646572732e77616974696e67666f6c646572",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "folder",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "count",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.folders.whatcomesin",
+      "resource": "m696f732e666f6c646572732e77686174636f6d6573696e",
+      "namespace": "ios.folders",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.frame.addmoreview.n148",
       "resource": "m696f732e6672616d652e6164646d6f7265766965772e6e313438",
       "namespace": "ios.frame.addmoreview",

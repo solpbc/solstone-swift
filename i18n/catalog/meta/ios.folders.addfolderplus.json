@@ -1,0 +1,16 @@
+{
+  "description": "Action button to add another folder when at least one folder is configured.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "697ede913c283a967e6f606999fdce2c8d2104574b99097b75dff2b7a32eb704",
+  "risk": "routine",
+  "auto_merge": true
+}

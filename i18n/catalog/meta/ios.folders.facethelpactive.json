@@ -1,0 +1,21 @@
+{
+  "description": "Helper line when a facet is selected on an active folder.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "facet",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "f999e398a4db19f658785413f8751b453c8b808daae052329ecfed0920d6bd20",
+  "risk": "routine",
+  "auto_merge": true
+}

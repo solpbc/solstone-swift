@@ -463,6 +463,9 @@ struct RootShellView: View {
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .environment(\.pushShellDestination, { destination in
+            self.nav.paneStack.append(destination)
+        })
     }
 
     /// `paneRoot` followed by `paneStack`. A nil root with a push still shows that
@@ -584,6 +587,9 @@ struct RootShellView: View {
                         .environment(\.paneBesideDeck, false)
                 }
         }
+        .environment(\.pushShellDestination, { destination in
+            self.nav.paneStack.append(destination)
+        })
     }
 
     /// What the pane shows at its root: the deck's selection, or the computed
@@ -932,6 +938,9 @@ struct RootShellView: View {
                 )
             }
         }
+        .environment(\.pushShellDestination, { destination in
+            self.statusPath.append(destination)
+        })
         .presentationDetents([.medium, .large], selection: self.$statusDetent)
         .presentationDragIndicator(.visible)
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

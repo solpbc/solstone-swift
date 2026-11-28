@@ -1,0 +1,16 @@
+{
+  "description": "Fallback note when paired journal is offline during preview.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "b38c2a079b4829e033b84b80a1941ed87f7a6c0bd190109d271e1f5d134378bf",
+  "risk": "routine",
+  "auto_merge": true
+}

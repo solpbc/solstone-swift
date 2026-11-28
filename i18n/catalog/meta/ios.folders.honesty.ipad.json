@@ -1,0 +1,16 @@
+{
+  "description": "iPad folder honesty line while setting up or on.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "bc264c9723d0c00b382b0a77ffe2e471a0cca56ae5cd9f6dd6ad1989fcdf2f00",
+  "risk": "routine",
+  "auto_merge": true
+}

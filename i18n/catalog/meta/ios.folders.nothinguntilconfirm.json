@@ -1,0 +1,16 @@
+{
+  "description": "Reassurance note above confirm during first setup.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "cb5248976133e1001c0cb19be6c88e1bd2a161c69d31ee4d204fff183a8f04ae",
+  "risk": "routine",
+  "auto_merge": true
+}

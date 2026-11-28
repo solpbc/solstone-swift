@@ -362,16 +362,18 @@ final class SourceIntakeTests: XCTestCase {
             snapshot: snapshot, includeSafari: false, includeWatch: false, now: now, locale: locale, calendar: calendar
         )
 #if SOLSTONE_PHOTOS_LIBRARY
-        XCTAssertEqual(rows.map(\.id), ["audio", "location", "screen", "calendar", "screenshots", "photos", "obsidian", "imports"])
+        XCTAssertEqual(rows.map(\.id), ["audio", "location", "screen", "calendar", "screenshots", "photos", "obsidian", "folders", "imports"])
         XCTAssertEqual(rows[4].destination, .source(.screenshots))
         XCTAssertEqual(rows[5].destination, .source(.photos))
         XCTAssertEqual(rows[6].destination, .source(.obsidian))
-        XCTAssertEqual(rows[7].destination, ShellDestination.import)
+        XCTAssertEqual(rows[7].destination, .source(.folders))
+        XCTAssertEqual(rows[8].destination, ShellDestination.import)
 #else
-        XCTAssertEqual(rows.map(\.id), ["audio", "location", "screen", "calendar", "screenshots", "obsidian", "imports"])
+        XCTAssertEqual(rows.map(\.id), ["audio", "location", "screen", "calendar", "screenshots", "obsidian", "folders", "imports"])
         XCTAssertEqual(rows[4].destination, .source(.screenshots))
         XCTAssertEqual(rows[5].destination, .source(.obsidian))
-        XCTAssertEqual(rows[6].destination, ShellDestination.import)
+        XCTAssertEqual(rows[6].destination, .source(.folders))
+        XCTAssertEqual(rows[7].destination, ShellDestination.import)
 #endif
         XCTAssertEqual(rows[0].soFar, "1 hour")
         XCTAssertFalse(rows[0].soFar.contains("since"))
@@ -382,9 +384,9 @@ final class SourceIntakeTests: XCTestCase {
             snapshot: .empty, includeSafari: true, includeWatch: true, now: now, locale: locale, calendar: calendar
         )
 #if SOLSTONE_PHOTOS_LIBRARY
-        XCTAssertEqual(empty.map(\.id), ["audio", "location", "screen", "calendar", "safari", "watch", "screenshots", "photos", "obsidian", "imports"])
+        XCTAssertEqual(empty.map(\.id), ["audio", "location", "screen", "calendar", "safari", "watch", "screenshots", "photos", "obsidian", "folders", "imports"])
 #else
-        XCTAssertEqual(empty.map(\.id), ["audio", "location", "screen", "calendar", "safari", "watch", "screenshots", "obsidian", "imports"])
+        XCTAssertEqual(empty.map(\.id), ["audio", "location", "screen", "calendar", "safari", "watch", "screenshots", "obsidian", "folders", "imports"])
 #endif
         XCTAssertTrue(empty.allSatisfy { $0.soFar == "nothing yet" && $0.last == nil })
         let page = SourceIntakeFormat.page(lane: snapshot.audio, kind: .duration, started: snapshot.started, now: now, locale: locale, calendar: calendar)

@@ -1,0 +1,31 @@
+{
+  "description": "Estimated day count in backfill preview.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    },
+    {
+      "name": "display",
+      "type": "string"
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 1000,
+  "source_revision": "82fe0f7940c4c03b022802d2a68a1890f4a5ec5700fa392ef53cd3bab92acb69",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

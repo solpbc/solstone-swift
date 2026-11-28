@@ -1,0 +1,16 @@
+{
+  "description": "Loading line while scanning a folder for preview counts.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "56a66476d45f6fc4b7994dbae8a51e57b6579513a7988328d64efb7aee2f4550",
+  "risk": "routine",
+  "auto_merge": true
+}

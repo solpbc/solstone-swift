@@ -26,6 +26,7 @@ nonisolated enum SourceIntakeSeenLog: String, CaseIterable, Sendable {
     case imports = "import"
     case screenshots
     case photos
+    case folders
     case calendar
 
     var fileName: String { "seen-\(self.rawValue).log" }
@@ -70,6 +71,7 @@ nonisolated struct SourceIntakeSnapshot: Equatable, Sendable {
     var obsidian: SourceIntakeLane
     var screenshots: SourceIntakeLane = SourceIntakeLane(total: 0, last: nil)
     var photos: SourceIntakeLane = SourceIntakeLane(total: 0, last: nil)
+    var folders: SourceIntakeLane = SourceIntakeLane(total: 0, last: nil)
     var imports: SourceIntakeLane
 
     static let empty = SourceIntakeSnapshot(
@@ -273,6 +275,20 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
             lane.items += 1
             lane.last = self.stamp(now)
             file.photos = lane
+            return true
+        }
+    }
+
+    /// One folder item delivered from this device, counted once per event ID.
+    @discardableResult
+    func recordFolderItem(eventID: String, now: Date) -> SourceIntakeResult {
+        self.mutate(now: now, create: true) { file, seen in
+            var lane = file.folders ?? CountLane()
+            guard try !seen.contains(eventID, in: .folders, tail: lane.seen) else { return false }
+            lane.seen.append(eventID)
+            lane.items += 1
+            lane.last = self.stamp(now)
+            file.folders = lane
             return true
         }
     }
@@ -844,6 +860,7 @@ nonisolated private extension SourceIntakeStore {
         var obsidian: ObsidianLane?
         var screenshots: CountLane?
         var photos: CountLane?
+        var folders: CountLane?
         /// Bytes of each lane's seen log this file's keys were moved into, by lane.
         var seenLogs: [String: Int]?
 
@@ -860,6 +877,7 @@ nonisolated private extension SourceIntakeStore {
             case obsidian
             case screenshots
             case photos
+            case folders
             case seenLogs = "seen_logs"
         }
 
@@ -875,7 +893,8 @@ nonisolated private extension SourceIntakeStore {
             imports: CountLane,
             obsidian: ObsidianLane? = nil,
             screenshots: CountLane? = nil,
-            photos: CountLane? = nil
+            photos: CountLane? = nil,
+            folders: CountLane? = nil
         ) {
             self.version = version
             self.started = started
@@ -889,6 +908,7 @@ nonisolated private extension SourceIntakeStore {
             self.obsidian = obsidian
             self.screenshots = screenshots
             self.photos = photos
+            self.folders = folders
         }
 
         init(from decoder: Decoder) throws {
@@ -905,6 +925,7 @@ nonisolated private extension SourceIntakeStore {
             self.obsidian = try container.decodeIfPresent(ObsidianLane.self, forKey: .obsidian)
             self.screenshots = try container.decodeIfPresent(CountLane.self, forKey: .screenshots)
             self.photos = try container.decodeIfPresent(CountLane.self, forKey: .photos)
+            self.folders = try container.decodeIfPresent(CountLane.self, forKey: .folders)
             self.seenLogs = try container.decodeIfPresent([String: Int].self, forKey: .seenLogs)
         }
 
@@ -927,6 +948,9 @@ nonisolated private extension SourceIntakeStore {
             }
             if let photos {
                 try container.encode(photos, forKey: .photos)
+            }
+            if let folders {
+                try container.encode(folders, forKey: .folders)
             }
             if let seenLogs {
                 try container.encode(seenLogs, forKey: .seenLogs)
@@ -959,6 +983,7 @@ nonisolated private extension SourceIntakeStore {
             self.obsidian?.seededVaults.sort()
             self.screenshots?.seen.sort()
             self.photos?.seen.sort()
+            self.folders?.seen.sort()
         }
 
         /// The keys of a lane still held in this file rather than its log.
@@ -971,6 +996,7 @@ nonisolated private extension SourceIntakeStore {
             case .imports: self.imports.seen
             case .screenshots: self.screenshots?.seen ?? []
             case .photos: self.photos?.seen ?? []
+            case .folders: self.folders?.seen ?? []
             case .calendar: self.calendar.seen
             }
         }
@@ -984,6 +1010,7 @@ nonisolated private extension SourceIntakeStore {
             case .imports: self.imports.seen = keys
             case .screenshots: self.screenshots?.seen = keys
             case .photos: self.photos?.seen = keys
+            case .folders: self.folders?.seen = keys
             case .calendar: self.calendar.seen = keys
             }
         }
@@ -1014,6 +1041,7 @@ nonisolated private extension SourceIntakeStore {
                 obsidian: SourceIntakeLane(total: self.obsidian?.notes ?? 0, last: self.obsidian?.last.flatMap(parse)),
                 screenshots: SourceIntakeLane(total: self.screenshots?.items ?? 0, last: self.screenshots?.last.flatMap(parse)),
                 photos: SourceIntakeLane(total: self.photos?.items ?? 0, last: self.photos?.last.flatMap(parse)),
+                folders: SourceIntakeLane(total: self.folders?.items ?? 0, last: self.folders?.last.flatMap(parse)),
                 imports: SourceIntakeLane(total: self.imports.items, last: self.imports.last.flatMap(parse))
             )
         }

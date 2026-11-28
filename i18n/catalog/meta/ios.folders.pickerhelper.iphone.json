@@ -1,0 +1,16 @@
+{
+  "description": "iPhone helper below add a folder.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "47bd508a70a8b582bef32cbb4b0e3bf1bdfdfe3f264048b6800c6bfa03677890",
+  "risk": "routine",
+  "auto_merge": true
+}

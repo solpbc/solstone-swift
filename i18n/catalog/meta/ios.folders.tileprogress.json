@@ -1,0 +1,29 @@
+{
+  "description": "Home tile sub-line while a folder is bringing in chosen history.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "folder",
+      "type": "string"
+    },
+    {
+      "name": "done",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "50ebf9e761cd586a2338438fa0138b921e8540f05e281571201d46db58255e9e",
+  "risk": "routine",
+  "auto_merge": true
+}

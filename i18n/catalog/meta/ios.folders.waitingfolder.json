@@ -1,0 +1,25 @@
+{
+  "description": "Home tile sub-line for one folder with queued items waiting to sync.",
+  "context": "Native app presentation. Folder source.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "folder",
+      "type": "string"
+    },
+    {
+      "name": "count",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "0234699c79effbdda4301336fd118902ec04dabafbc321fb546225e8f4830a7e",
+  "risk": "routine",
+  "auto_merge": true
+}
