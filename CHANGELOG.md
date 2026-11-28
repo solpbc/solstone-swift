@@ -6,13 +6,15 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.17 (173)] - 2026-11-28
+
 ### Added
 
-- on iphone and ipad, you can now add folders from Files as a source, once your journal is up to date. choose which file kinds come in, pick an optional facet, and preview the item count and estimated work before anything goes into your journal. changes come in while the app is open, and ios or ipados may also allow checks in the background, or you can tap "check now" on a folder. files stored only in iCloud stay in iCloud without being downloaded, and you can pause, resume, turn off, or remove each folder anytime without changing what is already in your journal or on your device.
+- on iphone and ipad, you can now add folders from Files as a source, once your journal is up to date. choose which file kinds come in, pick an optional facet, and preview the item count and estimated work before anything goes into your journal. when you set up a folder, you can bring in its older files or start from today. changes come in while the app is open, and ios or ipados may also allow checks in the background, or you can tap "check now" on a folder. files stored only in iCloud aren't downloaded by the solstone app; they come in once they're on your device. you can pause, resume, turn off, or remove each folder anytime without changing what is already in your journal or on your device.
 
 ### Fixed
 
-- when you confirm your journal's mark while pairing, folder changes waiting to sync go into that journal unless the folder is paused. when you set up the folder for this journal, you choose how much older history to add.
+- on iphone and ipad, when your Photos library reports many changes during a sync, such as while photos download from iCloud, the solstone app now works through them one pass at a time instead of running overlapping passes.
 
 ## [2.0.16 (172)] - 2026-11-27
 
